@@ -258,6 +258,8 @@ const elements = {
   aiExtractInput: document.getElementById("aiExtractInput"),
   aiExtractButton: document.getElementById("aiExtractButton"),
   aiExtractStatus: document.getElementById("aiExtractStatus"),
+  discoverEventsButton: document.getElementById("discoverEventsButton"),
+  discoverStatus: document.getElementById("discoverStatus"),
   resetFormButton: document.getElementById("resetFormButton"),
   clearDataButton: document.getElementById("clearDataButton"),
   resetSampleButton: document.getElementById("resetSampleButton"),
@@ -289,25 +291,26 @@ const elements = {
 function loadEvents() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (!saved) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleEvents));
-    return sampleEvents;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    return [];
   }
 
   try {
     const parsed = JSON.parse(saved);
-    if (!Array.isArray(parsed)) return sampleEvents;
+    if (!Array.isArray(parsed)) return [];
     if (isOldDemoSeed(parsed)) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleEvents));
-      return sampleEvents;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      return [];
     }
     return parsed.map(normalizeEvent);
   } catch {
-    return sampleEvents;
+    return [];
   }
 }
 
 function isOldDemoSeed(items) {
-  return items.length <= 3 && items.some((event) => String(event.link || "").includes("example.com"));
+  return items.some((event) => String(event.link || "").includes("example."))
+    || items.some((event) => event.source === "展会官网" && String(event.posterUrl || "").startsWith("assets/"));
 }
 
 function normalizeEvent(event) {
@@ -315,6 +318,9 @@ function normalizeEvent(event) {
     ...event,
     salesType: event.salesType || "",
     summaryNote: event.summaryNote || event.aiSummary || "",
+    eventUrl: event.eventUrl || "",
+    registrationUrl: event.registrationUrl || event.link || "",
+    verifiedSource: Boolean(event.verifiedSource),
     favorite: Boolean(event.favorite),
     selectedForReport: Boolean(event.selectedForReport)
   };
@@ -514,6 +520,115 @@ async function extractEventWithAi() {
   }
 }
 
+async function discoverRealEvents() {
+  setDiscoverLoading(true);
+  setDiscoverStatus("正在发现真实活动，请稍候", "");
+
+  try {
+    const apiBase = window.location.protocol === "file:" ? "http://127.0.0.1:3000" : "";
+    const response = await fetch(`${apiBase}/api/discover-events`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "真实活动发现失败，请稍后重试");
+    }
+
+    const discovered = Array.isArray(data.events) ? data.events.map(mapDiscoveredEvent).filter(Boolean) : [];
+    if (!discovered.length) {
+      setDiscoverStatus("暂未发现新的公开活动，请稍后重试或手动添加。", "error");
+      showToast("暂未发现新的公开活动");
+      return;
+    }
+
+    const result = mergeDiscoveredEvents(discovered);
+    saveEvents();
+    render();
+    setDiscoverStatus(`发现 ${discovered.length} 条真实活动，新增 ${result.added} 条，更新 ${result.updated} 条。`, "success");
+    showToast("真实活动已刷新");
+  } catch (error) {
+    setDiscoverStatus(error.message || "真实活动发现失败，请稍后重试", "error");
+  } finally {
+    setDiscoverLoading(false);
+  }
+}
+
+function mapDiscoveredEvent(event) {
+  const title = String(event.title || "").trim();
+  if (!title) return null;
+
+  const now = new Date().toISOString();
+  const registrationUrl = String(event.registrationUrl || "").trim();
+  const eventUrl = String(event.eventUrl || "").trim();
+
+  return {
+    id: createId(),
+    name: title,
+    type: event.eventType || "其他",
+    city: event.city || "",
+    location: event.location || "",
+    date: normalizeExtractedDate(event.date) || "",
+    organizer: event.organizer || "",
+    source: event.source || "Verified source",
+    link: registrationUrl,
+    registrationUrl,
+    eventUrl,
+    posterUrl: event.posterUrl || "",
+    tags: Array.isArray(event.themes) ? event.themes.join(", ") : "",
+    salesType: "",
+    summaryNote: event.aiSummary || "",
+    description: event.aiSummary || "",
+    recommendationLevel: "中",
+    recommendReason: event.notes || "",
+    status: "待评估",
+    selectedForReport: false,
+    favorite: false,
+    verifiedSource: true,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function mergeDiscoveredEvents(discovered) {
+  let added = 0;
+  let updated = 0;
+
+  discovered.forEach((incoming) => {
+    const existingIndex = events.findIndex((event) => eventIdentity(event) === eventIdentity(incoming));
+    if (existingIndex === -1) {
+      events.unshift(incoming);
+      added += 1;
+      return;
+    }
+
+    const existing = events[existingIndex];
+    events[existingIndex] = {
+      ...incoming,
+      id: existing.id,
+      favorite: existing.favorite,
+      selectedForReport: existing.selectedForReport,
+      createdAt: existing.createdAt,
+      updatedAt: new Date().toISOString(),
+      notes: mergeNotes(existing.notes, incoming.notes),
+      recommendReason: mergeNotes(existing.recommendReason, incoming.recommendReason)
+    };
+    updated += 1;
+  });
+
+  return { added, updated };
+}
+
+function eventIdentity(event) {
+  return [
+    String(event.name || "").trim().toLowerCase(),
+    String(event.date || "").trim(),
+    String(event.city || "").trim()
+  ].join("|");
+}
+
+function mergeNotes(current, next) {
+  return unique([current, next].filter(Boolean)).join("；");
+}
+
 function fillFormFromExtractedEvent(event) {
   const normalizedDate = normalizeExtractedDate(event.date);
   const summary = event.aiSummary || "";
@@ -573,6 +688,16 @@ function setAiStatus(message, type) {
   elements.aiExtractStatus.className = `ai-status${type ? ` ${type}` : ""}`;
 }
 
+function setDiscoverLoading(isLoading) {
+  elements.discoverEventsButton.disabled = isLoading;
+  elements.discoverEventsButton.textContent = isLoading ? "刷新中..." : "刷新真实活动";
+}
+
+function setDiscoverStatus(message, type) {
+  elements.discoverStatus.textContent = message;
+  elements.discoverStatus.className = `ai-status${type ? ` ${type}` : ""}`;
+}
+
 function clearFavorites() {
   if (!events.some((event) => event.favorite)) {
     showToast("收藏夹已经是空的");
@@ -600,14 +725,14 @@ function clearData() {
 }
 
 function resetSampleData() {
-  const confirmed = window.confirm("确定恢复内置示例数据吗？当前本地活动会被示例数据替换。");
+  const confirmed = window.confirm("确定清空本地活动池吗？V2 不再恢复假示例数据。");
   if (!confirmed) return;
 
-  events = sampleEvents.map((event) => ({ ...event, id: createId() }));
+  events = [];
   saveEvents();
   resetForm();
   render();
-  showToast("已恢复示例数据");
+  showToast("本地活动池已清空");
 }
 
 function scoreEvent(event) {
@@ -1073,10 +1198,13 @@ function showToast(message) {
 elements.form.addEventListener("submit", handleSubmit);
 elements.resetFormButton.addEventListener("click", resetForm);
 elements.clearDataButton.addEventListener("click", clearData);
-elements.resetSampleButton.addEventListener("click", resetSampleData);
+if (elements.resetSampleButton) {
+  elements.resetSampleButton.addEventListener("click", resetSampleData);
+}
 elements.clearFavoritesButton.addEventListener("click", clearFavorites);
 elements.exportWordButton.addEventListener("click", exportWordReport);
 elements.aiExtractButton.addEventListener("click", extractEventWithAi);
+elements.discoverEventsButton.addEventListener("click", discoverRealEvents);
 elements.openSubscribeButton.addEventListener("click", openSubscribeDialog);
 elements.saveSubscribeButton.addEventListener("click", saveSubscribeNote);
 elements.closeDetailButton.addEventListener("click", closeEventDetail);
