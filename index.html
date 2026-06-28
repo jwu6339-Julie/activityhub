@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ActivityHub | 商业地产活动机会池</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" data-nav="home" aria-label="ActivityHub 首页">
+      <span class="brand-mark">AH</span>
+      <span>ActivityHub</span>
+    </a>
+    <nav class="main-nav" aria-label="主导航">
+      <button class="nav-link active" type="button" data-nav="home">首页</button>
+      <button class="nav-link" type="button" data-nav="favorites">收藏夹</button>
+      <button class="nav-link" type="button" data-nav="admin">后台管理</button>
+    </nav>
+    <button class="subscribe-button" type="button" id="openSubscribeButton">订阅提醒</button>
+  </header>
+
+  <main>
+    <section class="page-view active" id="homeView">
+      <section class="hero">
+        <h1>商业地产活动机会池</h1>
+      </section>
+
+      <div class="app-shell">
+        <section class="panel search-panel" aria-labelledby="filterTitle">
+          <div class="panel-header">
+            <div>
+              <h2 id="filterTitle">搜索活动</h2>
+            </div>
+          </div>
+
+          <div class="filters">
+            <label class="search-field">
+              关键词搜索
+              <input id="searchInput" type="search" placeholder="输入活动名称、关键词、主办方">
+            </label>
+            <label>
+              城市
+              <select id="cityFilter">
+                <option value="">全部城市</option>
+              </select>
+            </label>
+            <label>
+              主题标签
+              <select id="tagFilter">
+                <option value="">全部主题</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="listTitle">
+          <div class="panel-header">
+            <div>
+              <h2 id="listTitle">最新活动</h2>
+            </div>
+          </div>
+          <div id="eventList" class="event-list"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="page-view" id="favoritesView">
+      <div class="app-shell">
+        <section class="page-heading">
+          <p class="eyebrow">My Favorites</p>
+          <h1>我的收藏夹</h1>
+          <p>保存我关注的活动，方便后续整理成活动报告。</p>
+          <div class="heading-actions">
+            <button class="danger-button" type="button" id="clearFavoritesButton">清空收藏</button>
+            <button class="secondary-button" type="button" id="exportWordButton">导出为 Word</button>
+          </div>
+        </section>
+        <div id="favoriteList" class="event-list"></div>
+      </div>
+    </section>
+
+    <section class="page-view" id="adminView">
+      <div class="app-shell">
+        <section class="page-heading">
+          <p class="eyebrow">Admin Console</p>
+          <h1>后台管理</h1>
+          <p>V1 只做前端管理页面，不包含登录、权限、邮件配置或真实订阅系统。</p>
+        </section>
+
+        <div class="admin-tabs" role="tablist" aria-label="后台管理标签">
+          <button class="admin-tab active" type="button" data-admin-tab="overview">数据概览</button>
+          <button class="admin-tab" type="button" data-admin-tab="manage">活动管理</button>
+          <button class="admin-tab" type="button" data-admin-tab="add">添加活动</button>
+        </div>
+
+        <section class="admin-panel active" id="overviewTab">
+          <div class="stats-grid">
+            <article class="stat-card">
+              <span>活动总数</span>
+              <strong id="adminTotalCount">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>待评估</span>
+              <strong id="adminPendingCount">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>即将开始</span>
+              <strong id="soonCount">0</strong>
+            </article>
+            <article class="stat-card high">
+              <span>平均推荐分</span>
+              <strong id="averageScore">0</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="admin-panel" id="manageTab">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">活动管理</p>
+                <h2>全部活动表格</h2>
+              </div>
+              <div class="report-actions">
+                <button class="secondary-button" type="button" id="resetSampleButton">恢复示例数据</button>
+                <button class="danger-button" type="button" id="clearDataButton">清空测试数据</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>活动名称</th>
+                    <th>城市</th>
+                    <th>日期</th>
+                    <th>推荐级别</th>
+                    <th>状态</th>
+                    <th>评分</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="adminTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="admin-panel" id="addTab">
+          <section class="panel" aria-labelledby="formTitle">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">新增活动区</p>
+                <h2 id="formTitle">录入 / 编辑活动</h2>
+              </div>
+              <button class="secondary-button" type="button" id="resetFormButton">清空表单</button>
+            </div>
+
+            <form id="eventForm" class="event-form">
+              <input type="hidden" id="eventId">
+
+              <label>
+                活动名称
+                <input id="name" type="text" required placeholder="例如：2026 商业地产资管峰会">
+              </label>
+
+              <label>
+                活动类型
+                <select id="type" required>
+                  <option value="">请选择</option>
+                  <option>论坛</option>
+                  <option>峰会</option>
+                  <option>沙龙</option>
+                  <option>研讨会</option>
+                  <option>展会</option>
+                  <option>闭门会</option>
+                </select>
+              </label>
+
+              <label>
+                城市
+                <input id="city" type="text" required placeholder="例如：上海">
+              </label>
+
+              <label>
+                具体地点
+                <input id="location" type="text" required placeholder="例如：上海静安香格里拉酒店">
+              </label>
+
+              <label>
+                活动日期
+                <input id="date" type="date" required>
+              </label>
+
+              <label>
+                主办方
+                <input id="organizer" type="text" placeholder="例如：中国楼促会 / RICS">
+              </label>
+
+              <label>
+                活动来源
+                <input id="source" type="text" placeholder="例如：协会官网 / 公众号线索 / 搜索结果">
+              </label>
+
+              <label>
+                活动链接 / 报名链接
+                <input id="link" type="url" required placeholder="例如：http://www.corc.com.cn/">
+              </label>
+
+              <label>
+                活动海报链接
+                <input id="posterUrl" type="text" placeholder="例如：assets/corc-event-card.jpg 或 https://...jpg">
+              </label>
+
+              <label>
+                主题标签
+                <input id="tags" type="text" placeholder="用逗号分隔，例如：REITs, 资管, 商业地产">
+              </label>
+
+              <label>
+                推荐级别
+                <select id="recommendationLevel">
+                  <option>高</option>
+                  <option>中</option>
+                  <option>低</option>
+                </select>
+              </label>
+
+              <label>
+                活动状态
+                <select id="status">
+                  <option>待评估</option>
+                  <option>已推荐</option>
+                  <option>已发送销售</option>
+                  <option>已报名</option>
+                  <option>已结束</option>
+                  <option>暂不推荐</option>
+                </select>
+              </label>
+
+              <label class="full-row">
+                活动简介 / 备注
+                <textarea id="description" rows="3" placeholder="补充活动议题、参会人群、销售价值等信息"></textarea>
+              </label>
+
+              <label class="full-row">
+                推荐理由
+                <textarea id="recommendReason" rows="3" placeholder="例如：主办方为行业协会，议题聚焦资管和 REITs，适合触达业主方和金融机构"></textarea>
+              </label>
+
+              <div class="form-actions full-row">
+                <button class="primary-button" type="submit">保存活动</button>
+              </div>
+            </form>
+          </section>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="subscribeDialog" class="subscribe-dialog">
+    <form method="dialog" class="subscribe-form">
+      <div class="panel-header">
+        <div>
+          <p class="section-kicker">订阅提醒</p>
+          <h2>提醒占位设置</h2>
+        </div>
+        <button class="small-button" value="cancel" type="submit">关闭</button>
+      </div>
+      <p class="assistive-note">V1 暂不自动发送提醒，后续可接入邮件或日历提醒。这里先保存你的演示备注。</p>
+      <label>
+        邮箱或备注
+        <input id="subscribeInput" type="text" placeholder="例如：julie@example.com / 每周一整理活动">
+      </label>
+      <menu class="dialog-actions">
+        <button class="primary-button" id="saveSubscribeButton" value="default" type="button">保存占位信息</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="eventDetailDialog" class="detail-dialog">
+    <article class="detail-card">
+      <div class="detail-header">
+        <div>
+          <p class="section-kicker">活动详情</p>
+          <h2 id="detailTitle">活动详情</h2>
+        </div>
+        <button class="small-button" type="button" id="closeDetailButton">关闭</button>
+      </div>
+      <div id="detailContent" class="detail-content"></div>
+      <div class="detail-actions">
+        <button class="secondary-button" type="button" id="detailFavoriteButton">收藏</button>
+        <a class="primary-button detail-register-link" id="detailRegisterLink" href="#" target="_blank" rel="noreferrer">立即报名</a>
+      </div>
+    </article>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
