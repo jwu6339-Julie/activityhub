@@ -1,172 +1,150 @@
 # ActivityHub
 
-ActivityHub is a planned web tool for collecting, organizing, scoring, reviewing, and exporting commercial real estate and related industry event intelligence.
+ActivityHub 是一个用于整理商业地产、地产科技、REITs、办公租赁、智慧楼宇、设施管理等行业活动的轻量网页工具。
 
-The V1 product focuses on helping market and operations teams turn scattered event information into a structured activity list and a Word/PDF-style sales activity report.
+当前版本是在本地 demo 基础上新增的 **API V1**：用户可以手动维护活动，也可以在后台添加活动时粘贴活动链接或活动原文，由后端调用 OpenAI API 提取结构化字段，再由用户人工确认后保存。
 
-## Project Status
+## 当前状态
 
-Current status: **PRD confirmed, implementation not started**.
+- 已实现纯前端活动浏览 demo。
+- 已实现 localStorage 本地保存。
+- 已实现首页搜索、城市筛选、主题筛选、活动卡片、详情弹窗、收藏夹、Word 风格导出。
+- 已实现后台添加、编辑、删除活动。
+- 已新增 Node.js 后端接口 `POST /api/extract-event`。
+- 已新增 OpenAI API 提取活动信息能力。
 
-This repository currently contains product documentation only. No application code, framework setup, scraper, AI integration, or report generation implementation has been created yet.
+## 重要边界
 
-## Target Users
+- 不做自动公众号抓取。
+- 不做全网实时爬虫。
+- 不做登录、数据库、多人协作或权限系统。
+- 不自动发送给销售。
+- OpenAI API key 只放在后端 `.env`，不要写入 `index.html` 或 `app.js`。
+- AI 只辅助提取和填表，最终保存、收藏和导出仍由用户人工确认。
 
-Primary users:
+## 本地运行
 
-- Market and operations team members who collect, review, and prepare event intelligence.
+确保你的电脑已经安装 Node.js 18 或更高版本。
 
-Secondary users:
+1. 安装依赖
 
-- Sales teams and sales managers who read the exported report to assess event participation and potential lead-generation opportunities.
+```bash
+npm install
+```
 
-## V1 Scope
+当前项目没有第三方 npm 依赖，这一步主要用于生成本地 npm 项目环境。
 
-ActivityHub V1 is designed to:
+2. 配置环境变量
 
-- Discover relevant events from public web pages and search results.
-- Organize candidate events into a structured list.
-- Score candidate events using transparent rules.
-- Let users manually review, edit, exclude, and select events.
-- Generate a Word/PDF-style event report for sales or management review.
-- Save historical event records, collection batches, and generated reports.
-- Merge duplicate events discovered from multiple sources.
+```bash
+cp .env.example .env
+```
 
-V1 prioritizes commercial real estate and adjacent topics, including:
+然后编辑 `.env`：
 
-- Commercial real estate
-- REITs
-- Office leasing
-- PropTech
-- Smart buildings
-- Facilities management
-- Asset management
-- Industrial finance
-- Smart parks
-- Corporate real estate
+```bash
+OPENAI_API_KEY=your_real_api_key_here
+OPENAI_MODEL=gpt-4.1-mini
+PORT=3000
+```
 
-The default event time window is the next 90 days.
+不要把真实 `.env` 提交或分享出去。
 
-## V1 Workflow
+3. 启动本地服务
 
-1. A user starts a new event collection batch.
-2. The system collects candidate events from public web sources and keyword search.
-3. The system extracts structured event information.
-4. The system applies rule-based scoring and displays score reasons.
-5. The system identifies expired events and merges likely duplicates.
-6. The user reviews the candidate pool.
-7. The user edits event details where needed.
-8. The user manually selects events for the report.
-9. The system generates a report preview.
-10. The user exports a Word/PDF-style activity report.
+```bash
+npm start
+```
 
-## Core Features
+4. 打开网页
 
-Must-have V1 capabilities:
+访问：
 
-- On-demand event collection.
-- Candidate event list.
-- Event editing and deletion.
-- Manual event selection for reports.
-- Rule-based scoring with visible reasons.
-- Expired event detection.
-- Duplicate event merging.
-- Historical event and report storage.
-- Word/PDF-style report generation.
+```text
+http://127.0.0.1:3000
+```
 
-## Rule Scoring
+## 测试 AI 提取
 
-V1 does not use AI API calls or AI-based judgment.
+1. 打开 `http://127.0.0.1:3000`。
+2. 点击顶部导航的“后台管理”。
+3. 切换到“添加活动”。
+4. 在“AI 提取活动信息”区域粘贴公开活动链接，或粘贴公众号/网页中的活动原文。
+5. 点击“AI 提取活动信息”。
+6. 等待 AI 将活动名称、类型、城市、地点、日期、主办方、报名链接、主题标签、AI 摘要等字段填入表单。
+7. 人工检查并修改后，点击“保存活动”。
 
-The system only uses transparent rule scoring. Scores help users sort and review candidates, but they do not decide the final recommendation.
+如果链接内容无法读取，页面会提示：`链接内容无法读取，请粘贴活动原文后重试`。
 
-Scoring dimensions include:
+## 活动字段
 
-- Topic relevance.
-- Organizer importance.
-- Key city match.
-- Sales lead-generation value.
-- Information completeness.
-- Event time validity.
+活动记录主要包含：
 
-Each score should be shown with:
+- 活动名称
+- 活动类型
+- 城市
+- 具体地点
+- 活动日期
+- 主办方
+- 活动来源
+- 活动链接 / 报名链接
+- 活动海报链接
+- 主题标签
+- 活动简介 / AI 摘要
+- 推荐级别
+- 推荐理由
+- 活动状态
+- 收藏状态
 
-- Total score.
-- Matched tags.
-- Score reasons.
-- Missing information warnings.
+## 收藏夹与报告
 
-Final inclusion in the sales report is always confirmed manually by the user.
+首页点击爱心即可收藏活动。收藏夹只展示已收藏活动。
 
-## Report Output
+“导出为 Word”当前导出的是 Word 可打开的 `.doc` 风格 HTML 文档，内容基于收藏夹活动生成，包括：
 
-The V1 report should follow a Word/PDF-style format.
+- Dear all 开头说明
+- TOPIC 1 / 2 / 3
+- 活动海报
+- 地点
+- 时间
+- 报名链接
+- 备注 / 活动简介
+- Best regards, Julie Wu
 
-Recommended report structure:
+## API
 
-- Opening summary.
-- Activity scope and time window.
-- Recommendation principles.
-- Activity count summary.
-- TOPIC 1 / 2 / 3 groupings.
-- Event cards under each topic.
+### `POST /api/extract-event`
 
-Each event card should include:
+请求：
 
-- Event name.
-- Event poster.
-- Location.
-- Time.
-- Registration link.
-- Event introduction.
-- Notes / recommendation reason.
+```json
+{
+  "input": "用户粘贴的活动链接或活动原文"
+}
+```
 
-Recommendation reasons come from rule-score matches and user-entered notes, not AI-generated text.
+响应：
 
-## Data Persistence
+```json
+{
+  "success": true,
+  "event": {
+    "title": "活动名称",
+    "eventType": "峰会",
+    "city": "上海",
+    "location": "具体地点",
+    "date": "2026-07-01",
+    "organizer": "主办方",
+    "source": "活动来源",
+    "registrationUrl": "https://example.com",
+    "posterUrl": "",
+    "themes": ["商业地产", "REITs"],
+    "aiSummary": "100-150字活动简介",
+    "notes": "补充备注"
+  }
+}
+```
 
-V1 should save:
+## 产品文档
 
-- Event records.
-- Source records.
-- Collection batches.
-- Rule scoring results.
-- User-edited fields.
-- Inclusion or exclusion status.
-- Generated report records.
-
-This enables historical review, duplicate detection, and long-term event library building.
-
-## Deduplication
-
-When the same event appears from multiple sources, V1 should merge candidates automatically when confidence is high.
-
-Deduplication may consider:
-
-- Similar event names.
-- Same or close event time.
-- Same or close city/location.
-- Same registration link.
-- Same source destination.
-- Similar poster or title.
-
-Merged records should preserve multiple sources and should not overwrite fields manually edited by users.
-
-## Explicit Non-Goals
-
-V1 will not include:
-
-- AI API integration.
-- AI-generated recommendation reasons.
-- Final automatic recommendation to sales.
-- Automatic report sending.
-- Automatic event registration.
-- CRM integration.
-- Sales task assignment.
-- ROI tracking.
-- Multi-user permission management.
-- Collection methods that bypass platform login, access control, anti-scraping rules, or other restrictions.
-
-## Product Requirement Document
-
-See [PRD.md](./PRD.md) for the confirmed V1 product requirements.
+详见 [PRD.md](./PRD.md)。
