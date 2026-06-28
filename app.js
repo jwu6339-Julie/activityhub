@@ -240,6 +240,7 @@ const elements = {
   adminPanels: document.querySelectorAll(".admin-panel"),
   form: document.getElementById("eventForm"),
   eventId: document.getElementById("eventId"),
+  summaryNote: document.getElementById("summaryNote"),
   name: document.getElementById("name"),
   type: document.getElementById("type"),
   city: document.getElementById("city"),
@@ -254,6 +255,9 @@ const elements = {
   recommendationLevel: document.getElementById("recommendationLevel"),
   recommendReason: document.getElementById("recommendReason"),
   status: document.getElementById("status"),
+  aiExtractInput: document.getElementById("aiExtractInput"),
+  aiExtractButton: document.getElementById("aiExtractButton"),
+  aiExtractStatus: document.getElementById("aiExtractStatus"),
   resetFormButton: document.getElementById("resetFormButton"),
   clearDataButton: document.getElementById("clearDataButton"),
   resetSampleButton: document.getElementById("resetSampleButton"),
@@ -345,7 +349,7 @@ function getFormData() {
     posterUrl: elements.posterUrl.value.trim(),
     tags: elements.tags.value.trim(),
     salesType: existing?.salesType || "",
-    summaryNote: existing?.summaryNote || "",
+    summaryNote: elements.summaryNote.value.trim() || existing?.summaryNote || "",
     description: elements.description.value.trim(),
     recommendationLevel: elements.recommendationLevel.value,
     recommendReason: elements.recommendReason.value.trim(),
@@ -378,6 +382,9 @@ function handleSubmit(event) {
 function resetForm() {
   elements.form.reset();
   elements.eventId.value = "";
+  elements.summaryNote.value = "";
+  elements.aiExtractStatus.textContent = "";
+  elements.aiExtractStatus.className = "ai-status";
   elements.recommendationLevel.value = "高";
   elements.status.value = "待评估";
 }
@@ -387,14 +394,16 @@ function editEvent(id) {
   if (!event) return;
 
   [
-    "name", "type", "city", "location", "date", "organizer", "source", "link",
+    "name", "city", "location", "date", "organizer", "source", "link",
     "posterUrl", "tags", "description", "recommendationLevel",
     "recommendReason", "status"
   ].forEach((key) => {
     elements[key].value = event[key] || "";
   });
 
+  setSelectValue(elements.type, event.type || "");
   elements.eventId.value = event.id;
+  elements.summaryNote.value = event.summaryNote || event.aiSummary || "";
   showView("admin");
   showAdminTab("add");
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -470,6 +479,98 @@ function toggleDetailFavorite() {
   if (!activeDetailId) return;
   toggleFavorite(activeDetailId);
   openEventDetail(activeDetailId);
+}
+
+async function extractEventWithAi() {
+  const input = elements.aiExtractInput.value.trim();
+  if (!input) {
+    setAiStatus("请先粘贴活动链接或活动原文", "error");
+    return;
+  }
+
+  setAiLoading(true);
+  setAiStatus("AI 正在提取活动信息...", "");
+
+  try {
+    const apiBase = window.location.protocol === "file:" ? "http://127.0.0.1:3000" : "";
+    const response = await fetch(`${apiBase}/api/extract-event`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input })
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || !data.success || !data.event) {
+      throw new Error(data.error || "AI 提取失败，请检查输入内容");
+    }
+
+    fillFormFromExtractedEvent(data.event);
+    setAiStatus("已提取并填入表单，请检查后保存。", "success");
+    showToast("AI 提取完成");
+  } catch (error) {
+    setAiStatus(error.message || "AI 提取失败，请检查输入内容", "error");
+  } finally {
+    setAiLoading(false);
+  }
+}
+
+function fillFormFromExtractedEvent(event) {
+  const normalizedDate = normalizeExtractedDate(event.date);
+  const summary = event.aiSummary || "";
+  const notes = event.notes || "";
+
+  elements.name.value = event.title || "";
+  setSelectValue(elements.type, event.eventType || "");
+  elements.city.value = event.city || "";
+  elements.location.value = event.location || "";
+  elements.date.value = normalizedDate;
+  elements.organizer.value = event.organizer || "";
+  elements.source.value = event.source || "AI 提取";
+  elements.link.value = event.registrationUrl || "";
+  elements.posterUrl.value = event.posterUrl || "";
+  elements.tags.value = Array.isArray(event.themes) ? event.themes.join(", ") : "";
+  elements.summaryNote.value = summary;
+  elements.description.value = [summary, notes].filter(Boolean).join("\n\n");
+  elements.recommendationLevel.value = "中";
+  elements.recommendReason.value = notes;
+  elements.status.value = "待评估";
+}
+
+function setSelectValue(select, value) {
+  if (!value) {
+    select.value = "";
+    return;
+  }
+
+  const hasOption = [...select.options].some((option) => option.value === value || option.textContent === value);
+  if (!hasOption) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  }
+  select.value = value;
+}
+
+function normalizeExtractedDate(value) {
+  if (!value) return "";
+  const text = String(value).trim();
+  const isoMatch = text.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  const zhMatch = text.match(/(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日?/);
+  const match = isoMatch || zhMatch;
+  if (!match) return "";
+  const [, year, month, day] = match;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function setAiLoading(isLoading) {
+  elements.aiExtractButton.disabled = isLoading;
+  elements.aiExtractButton.textContent = isLoading ? "提取中..." : "AI 提取活动信息";
+}
+
+function setAiStatus(message, type) {
+  elements.aiExtractStatus.textContent = message;
+  elements.aiExtractStatus.className = `ai-status${type ? ` ${type}` : ""}`;
 }
 
 function clearFavorites() {
@@ -975,6 +1076,7 @@ elements.clearDataButton.addEventListener("click", clearData);
 elements.resetSampleButton.addEventListener("click", resetSampleData);
 elements.clearFavoritesButton.addEventListener("click", clearFavorites);
 elements.exportWordButton.addEventListener("click", exportWordReport);
+elements.aiExtractButton.addEventListener("click", extractEventWithAi);
 elements.openSubscribeButton.addEventListener("click", openSubscribeDialog);
 elements.saveSubscribeButton.addEventListener("click", saveSubscribeNote);
 elements.closeDetailButton.addEventListener("click", closeEventDetail);
