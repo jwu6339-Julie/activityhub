@@ -32,6 +32,10 @@
             <div>
               <h2 id="filterTitle">搜索活动</h2>
             </div>
+            <div class="discover-actions">
+              <button class="secondary-button" type="button" id="discoverEventsButton">刷新真实活动</button>
+              <span id="discoverStatus" class="ai-status" role="status" aria-live="polite"></span>
+            </div>
           </div>
 
           <div class="filters">
@@ -123,7 +127,6 @@
                 <h2>全部活动表格</h2>
               </div>
               <div class="report-actions">
-                <button class="secondary-button" type="button" id="resetSampleButton">恢复示例数据</button>
                 <button class="danger-button" type="button" id="clearDataButton">清空测试数据</button>
               </div>
             </div>
@@ -287,7 +290,7 @@
       <p class="assistive-note">V1 暂不自动发送提醒，后续可接入邮件或日历提醒。这里先保存你的演示备注。</p>
       <label>
         邮箱或备注
-        <input id="subscribeInput" type="text" placeholder="例如：julie@example.com / 每周一整理活动">
+        <input id="subscribeInput" type="text" placeholder="例如：julie@company.com / 每周一整理活动">
       </label>
       <menu class="dialog-actions">
         <button class="primary-button" id="saveSubscribeButton" value="default" type="button">保存占位信息</button>
