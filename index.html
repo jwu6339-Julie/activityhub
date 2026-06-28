@@ -156,8 +156,25 @@
               <button class="secondary-button" type="button" id="resetFormButton">清空表单</button>
             </div>
 
+            <section class="ai-extract-box" aria-labelledby="aiExtractTitle">
+              <div>
+                <p class="section-kicker">AI Extract</p>
+                <h3 id="aiExtractTitle">AI 提取活动信息</h3>
+                <p>粘贴公开活动链接，或直接粘贴公众号/网页活动原文。AI 会提取结构化字段并填入下方表单，保存前仍可人工修改。</p>
+              </div>
+              <label class="full-row">
+                活动链接或活动原文
+                <textarea id="aiExtractInput" rows="5" placeholder="粘贴活动网页链接，或粘贴活动原文内容"></textarea>
+              </label>
+              <div class="ai-actions">
+                <button class="primary-button" type="button" id="aiExtractButton">AI 提取活动信息</button>
+                <span id="aiExtractStatus" class="ai-status" role="status" aria-live="polite"></span>
+              </div>
+            </section>
+
             <form id="eventForm" class="event-form">
               <input type="hidden" id="eventId">
+              <input type="hidden" id="summaryNote">
 
               <label>
                 活动名称
