@@ -144,7 +144,7 @@ function isAllowedStoredEvent(event) {
   const nonEventPattern = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
   const eventTitlePattern = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
   const date = normalizeExtractedDate(event.date);
-  return Boolean(event.registrationUrl || event.link)
+  return Boolean(event.registrationUrl || event.link || event.registrationType)
     && Boolean(event.posterUrl)
     && Boolean(event.city)
     && Boolean(event.location)
@@ -299,7 +299,7 @@ function openEventDetail(id) {
   const registrationLink = event.registrationUrl || event.link || "";
   const registrationMarkup = `
     <div class="detail-row"><strong>活动来源链接：</strong><span>${sourceLink !== "#" ? `<a href="${escapeAttribute(sourceLink)}" target="_blank" rel="noreferrer">查看活动来源页面</a>` : "未填写"}</span></div>
-    <div class="detail-row"><strong>报名链接：</strong><span>${registrationLink ? `<a href="${escapeAttribute(registrationLink)}" target="_blank" rel="noreferrer">${escapeHtml(event.name)}</a>` : "未填写"}</span></div>`;
+    <div class="detail-row"><strong>${registrationLink ? "报名链接" : "报名方式"}：</strong><span>${registrationLink ? `<a href="${escapeAttribute(registrationLink)}" target="_blank" rel="noreferrer">${escapeHtml(event.name)}</a>` : escapeHtml(event.registrationType || "需人工确认")}</span></div>`;
   elements.detailTitle.textContent = event.name;
   elements.detailRegisterLink.href = registrationLink || sourceLink;
   elements.detailRegisterLink.textContent = registrationLink ? "立即报名" : "查看活动来源";
@@ -391,7 +391,11 @@ async function discoverRealEvents() {
     }
 
     const discovered = Array.isArray(data.events) ? data.events.map(mapDiscoveredEvent).filter(Boolean) : [];
-    console.info(`固定库合并后活动 ${discovered.length} 条，新增 ${data.added || 0} 条，更新 ${data.updated || 0} 条`);
+    const totalVerified = data.totalVerified || discovered.length;
+    const addedCount = data.addedCount ?? data.added ?? 0;
+    const updatedCount = data.updatedCount ?? data.updated ?? 0;
+    const keptExistingCount = data.keptExistingCount ?? Math.max(0, totalVerified - addedCount);
+    console.info(`固定库合并后活动 ${totalVerified} 条，保留 ${keptExistingCount} 条，新增 ${addedCount} 条，更新 ${updatedCount} 条`);
     console.info("已过滤 KPMG / 博鳌 / 观点文章 / 会后报道 / 无报名链接内容");
     console.info(`当前首页活动数量 ${discovered.length}`);
 
@@ -406,7 +410,7 @@ async function discoverRealEvents() {
     saveEvents();
     render();
     const warning = data.warning ? ` ${data.warning}` : "";
-    setDiscoverStatus(`已合并 ${discovered.length} 条 verified 活动，新增 ${data.added || 0} 条，更新 ${data.updated || 0} 条。${warning}`, "success");
+    setDiscoverStatus(`已保留 ${keptExistingCount} 条固定 verified 活动，新增 ${addedCount} 条，更新 ${updatedCount} 条。当前共 ${totalVerified} 条。${warning}`, "success");
     showToast("真实活动库已更新");
   } catch (error) {
     setDiscoverStatus(error.message || "真实活动发现失败，请稍后重试", "error");
@@ -907,7 +911,7 @@ function buildPlainTextReport() {
     event.posterUrl ? `[活动海报] ${event.posterUrl}` : "[活动海报] 未填写",
     `地点：${event.city} ${event.location}`,
     `时间：${formatDate(event.date)}`,
-    `报名链接：${event.registrationUrl || event.link || "未填写"}`,
+    event.registrationUrl || event.link ? `报名链接：${event.registrationUrl || event.link}` : `报名方式：${event.registrationType || "需人工确认"}`,
     `备注：${event.summaryNote || event.description || "暂无备注。"}`
   ].join("\n")).join("\n\n");
 
@@ -986,7 +990,7 @@ function reportRegistrationHtml(event) {
   if (registrationUrl) {
     parts.push(`<a href="${escapeAttribute(registrationUrl)}">${escapeHtml(event.name)}</a>`);
   } else {
-    parts.push("未填写");
+    parts.push(escapeHtml(event.registrationType || "需人工确认"));
   }
 
   if (sourceUrl && sourceUrl !== registrationUrl) {
