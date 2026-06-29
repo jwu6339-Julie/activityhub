@@ -62,7 +62,7 @@ const HIGH_CONFIDENCE_SOURCE_URLS = [
 
 const NON_EVENT_PATTERN = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
 const POST_EVENT_PATTERN = /(圆满举行|成功举办|成功召开|会后|回顾|现场回顾|精彩回顾|活动回顾|大会回顾)/i;
-const EVENT_TITLE_PATTERN = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
+const EVENT_TITLE_PATTERN = /(大会|峰会|论坛|研讨会|沙龙|展会|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
 const REGISTRATION_PATTERN = /(报名|立即报名|参会报名|我要报名|我要参会|观众登记|注册|报名入口|预约参会|在线报名|Register|Registration|Sign up|Apply|Book|Ticket|Visitor Registration)/i;
 const SEARCH_RESULT_SELECTOR = [
   ".vr-title a",
@@ -153,69 +153,20 @@ async function handleExtractEvent(request, response) {
 }
 
 async function handleDiscoverEvents(response) {
-  const diagnostics = [];
-  const existingEvents = await loadVerifiedEvents();
-
-  if (!ENABLE_INCREMENTAL_DISCOVERY) {
+  try {
+    const events = await loadVerifiedEvents();
     sendJson(response, 200, {
       success: true,
-      events: sortVerifiedEvents(existingEvents),
-      totalVerified: existingEvents.length,
+      events,
+      totalVerified: events.length,
       addedCount: 0,
       updatedCount: 0,
-      keptExistingCount: existingEvents.length,
-      added: 0,
-      updated: 0,
-      sources: [{
-        status: "append_only_fixed_library",
-        reason: "实时随机发现已关闭；刷新只保留固定 verified 活动库，不覆盖、不删除。"
-      }]
-    });
-    return;
-  }
-
-  try {
-    await mkdir(GENERATED_POSTER_DIR, { recursive: true });
-    const candidates = await discoverEventCandidates(diagnostics);
-    const browser = await chromium.launch({ headless: true });
-    const discoveredEvents = [];
-
-    try {
-      for (const candidate of candidates.slice(0, MAX_DISCOVERY_CANDIDATES)) {
-        const event = await processDiscoveredCandidate(candidate, browser, diagnostics);
-        if (event) discoveredEvents.push(event);
-        if (discoveredEvents.length >= MAX_DISCOVERED_EVENTS) break;
-      }
-    } finally {
-      await browser.close();
-    }
-
-    const { events: finalEvents, added, updated } = mergeVerifiedEvents(existingEvents, discoveredEvents);
-    await saveVerifiedEvents(finalEvents);
-
-    sendJson(response, 200, {
-      success: true,
-      events: finalEvents,
-      added,
-      updated,
-      totalVerified: finalEvents.length,
-      addedCount: added,
-      updatedCount: updated,
-      keptExistingCount: existingEvents.length,
-      sources: diagnostics
+      keptExistingCount: events.length
     });
   } catch (error) {
-    sendJson(response, 200, {
-      success: true,
-      warning: error.publicMessage || error.message || "增量发现失败，已保留固定 verified 活动库",
-      events: sortVerifiedEvents(existingEvents),
-      added: 0,
-      updated: 0,
-      totalVerified: existingEvents.length,
-      addedCount: 0,
-      updatedCount: 0,
-      keptExistingCount: existingEvents.length,
-      sources: diagnostics
+    sendJson(response, error.statusCode || 500, {
+      success: false,
+      error: error.publicMessage || error.message || "固定活动库加载失败"
     });
   }
 }
@@ -339,7 +290,14 @@ async function loadVerifiedEvents() {
     const json = await readFile(VERIFIED_EVENTS_FILE, "utf8");
     const parsed = JSON.parse(json);
     if (!Array.isArray(parsed)) return [];
-    return sortVerifiedEvents(parsed.map(normalizeVerifiedLibraryEvent).filter(isValidVerifiedLibraryEvent));
+    const normalized = await Promise.all(parsed.map(async (event) => {
+      const normalizedEvent = normalizeVerifiedLibraryEvent(event);
+      if (!normalizedEvent.posterUrl || !existsSync(path.join(__dirname, normalizedEvent.posterUrl))) {
+        normalizedEvent.posterUrl = await generateFallbackPoster(normalizedEvent);
+      }
+      return normalizedEvent;
+    }));
+    return sortVerifiedEvents(normalized.filter(isValidVerifiedLibraryEvent));
   } catch {
     return [];
   }
@@ -351,7 +309,7 @@ async function saveVerifiedEvents(events) {
 }
 
 function normalizeVerifiedLibraryEvent(event) {
-  const registrationUrl = sanitizeRegistrationUrl(event.registrationUrl || "");
+  const registrationUrl = isHttpUrl(event.registrationUrl || "") ? String(event.registrationUrl || "").trim() : "";
   const registrationType = String(event.registrationType || "").trim();
   return {
     id: String(event.id || createStableEventId(event)),
@@ -374,8 +332,8 @@ function normalizeVerifiedLibraryEvent(event) {
     notes: cleanGeneratedSummary(event.notes || ""),
     verifiedSource: true,
     locked: Boolean(event.locked),
-    createdAt: String(event.createdAt || new Date().toISOString()),
-    updatedAt: String(event.updatedAt || new Date().toISOString())
+    createdAt: String(event.createdAt || `${normalizeDateString(event.date || "") || MIN_DISCOVERY_DATE}T00:00:00.000Z`),
+    updatedAt: String(event.updatedAt || `${normalizeDateString(event.date || "") || MIN_DISCOVERY_DATE}T00:00:00.000Z`)
   };
 }
 
@@ -384,6 +342,7 @@ function isValidVerifiedLibraryEvent(event) {
   if (parseEventDate(event.date) < new Date(`${MIN_DISCOVERY_DATE}T00:00:00`)) return false;
   if (!event.locked && isArticleNewsInterview(event.title, `${event.aiSummary} ${event.notes}`, event.eventUrl || event.sourceUrl)) return false;
   if (!EVENT_TITLE_PATTERN.test(`${event.title} ${event.eventType}`)) return false;
+  if (event.locked) return true;
   return isRelevantEvent(event, `${event.aiSummary} ${event.notes} ${event.themes.join(" ")}`);
 }
 
@@ -985,6 +944,59 @@ async function createDesignedPoster(title = "", sourceUrl = "", pageText = "", s
   } catch {
     return "";
   }
+}
+
+async function generateFallbackPoster(event) {
+  await mkdir(GENERATED_POSTER_DIR, { recursive: true });
+
+  const explicitName = event.posterUrl && event.posterUrl.startsWith(`${GENERATED_POSTER_PUBLIC_DIR}/`)
+    ? path.basename(event.posterUrl)
+    : "";
+  const fileName = explicitName || `${slugify(event.id || event.title || "activityhub-event", { lower: true, strict: true })}.svg`;
+  const filePath = path.join(GENERATED_POSTER_DIR, fileName);
+  const publicPath = `${GENERATED_POSTER_PUBLIC_DIR}/${fileName}`;
+
+  if (existsSync(filePath)) return publicPath;
+
+  const titleLines = wrapSvgText(event.title || "ActivityHub 活动", 15, 4);
+  const titleTspans = titleLines
+    .map((line, index) => `<tspan x="64" dy="${index === 0 ? 0 : 42}">${escapeSvg(line)}</tspan>`)
+    .join("");
+  const themeText = Array.isArray(event.themes) && event.themes.length
+    ? event.themes.slice(0, 4).join(" / ")
+    : event.category || event.eventType || "商业地产";
+  const dateText = [event.date, event.endDate && event.endDate !== event.date ? event.endDate : ""].filter(Boolean).join(" - ");
+  const cityText = [event.city, event.location].filter(Boolean).join(" · ");
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="640" viewBox="0 0 1080 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b2344"/>
+      <stop offset="52%" stop-color="#173f6f"/>
+      <stop offset="100%" stop-color="#d9a441"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.04"/>
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="640" fill="url(#bg)"/>
+  <circle cx="900" cy="90" r="180" fill="#ffffff" opacity="0.08"/>
+  <circle cx="930" cy="500" r="250" fill="#0b2344" opacity="0.24"/>
+  <rect x="48" y="48" width="984" height="544" rx="34" fill="url(#panel)" stroke="#ffffff" stroke-opacity="0.22"/>
+  <text x="64" y="105" fill="#f7c869" font-size="26" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700" letter-spacing="2">ACTIVITYHUB VERIFIED EVENT</text>
+  <text x="64" y="190" fill="#ffffff" font-size="38" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">${titleTspans}</text>
+  <g transform="translate(64 452)">
+    <rect width="952" height="84" rx="18" fill="#ffffff" opacity="0.13"/>
+    <text x="24" y="35" fill="#f8fafc" font-size="27" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700">${escapeSvg(dateText || "2026")}</text>
+    <text x="24" y="66" fill="#dbeafe" font-size="22" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">${escapeSvg(cityText || "地点待确认")}</text>
+    <text x="610" y="52" fill="#fef3c7" font-size="22" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" text-anchor="middle">${escapeSvg(themeText)}</text>
+  </g>
+  <text x="64" y="570" fill="#dbeafe" font-size="22" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">${escapeSvg(event.eventType || "活动")} · ${escapeSvg(event.category || "商业地产")}</text>
+</svg>`;
+
+  await writeFile(filePath, svg, "utf8");
+  return publicPath;
 }
 
 function wrapSvgText(text, maxChars = 14, maxLines = 3) {
