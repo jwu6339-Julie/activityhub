@@ -1,6 +1,6 @@
 const STORAGE_KEY = "activityhub_events_v1";
 const DATA_SCHEMA_KEY = "activityhub_data_schema_version";
-const DATA_SCHEMA_VERSION = "real-discovery-v6-source-links";
+const DATA_SCHEMA_VERSION = "verified-library-v1";
 const SUBSCRIBE_KEY = "activityhub_subscribe_note_v1";
 let activeDetailId = null;
 
@@ -86,7 +86,7 @@ function loadEvents() {
   if (localStorage.getItem(DATA_SCHEMA_KEY) !== DATA_SCHEMA_VERSION) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
     localStorage.setItem(DATA_SCHEMA_KEY, DATA_SCHEMA_VERSION);
-    console.info("已清空旧数据：localStorage schema upgraded to real-discovery-v6-source-links");
+    console.info("已清空旧数据：localStorage schema upgraded to verified-library-v1");
     return [];
   }
 
@@ -128,8 +128,8 @@ function normalizeEvent(event) {
     salesType: event.salesType || "",
     summaryNote: event.summaryNote || event.aiSummary || "",
     eventUrl: event.eventUrl || "",
-    sourceUrl: event.sourceUrl || event.eventUrl || event.link || "",
-    registrationUrl: event.registrationUrl || "",
+    sourceUrl: event.sourceUrl || event.eventUrl || "",
+    registrationUrl: event.registrationUrl || event.link || "",
     registrationType: event.registrationType || "",
     verifiedSource: Boolean(event.verifiedSource),
     favorite: Boolean(event.favorite),
@@ -144,8 +144,7 @@ function isAllowedStoredEvent(event) {
   const nonEventPattern = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
   const eventTitlePattern = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
   const date = normalizeExtractedDate(event.date);
-  const hasSourceLink = Boolean(event.link || event.sourceUrl || event.eventUrl || event.registrationUrl);
-  return hasSourceLink
+  return Boolean(event.registrationUrl || event.link)
     && Boolean(event.posterUrl)
     && Boolean(event.city)
     && Boolean(event.location)
@@ -270,20 +269,40 @@ function toggleFavorite(id) {
   showToast(isFavorite ? "已加入收藏" : "已取消收藏");
 }
 
+async function loadVerifiedEventsFromServer() {
+  if (window.location.protocol === "file:") return;
+
+  try {
+    const response = await fetch("/api/verified-events");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "固定活动库加载失败");
+    }
+
+    const verifiedEvents = Array.isArray(data.events) ? data.events.map(mapDiscoveredEvent).filter(Boolean) : [];
+    mergeEventsPreservingUserState(verifiedEvents);
+    saveEvents();
+    render();
+    setDiscoverStatus(`已加载 ${verifiedEvents.length} 条固定 verified 活动。`, "success");
+  } catch (error) {
+    setDiscoverStatus(error.message || "固定活动库加载失败", "error");
+  }
+}
+
 function openEventDetail(id) {
   const event = events.find((item) => item.id === id);
   if (!event) return;
 
   activeDetailId = id;
   const tags = splitTags(event.tags);
-  const sourceLink = event.sourceUrl || event.eventUrl || event.link || event.registrationUrl || "#";
-  const registrationLink = event.registrationUrl || "";
+  const sourceLink = event.sourceUrl || event.eventUrl || "#";
+  const registrationLink = event.registrationUrl || event.link || "";
   const registrationMarkup = `
     <div class="detail-row"><strong>活动来源链接：</strong><span>${sourceLink !== "#" ? `<a href="${escapeAttribute(sourceLink)}" target="_blank" rel="noreferrer">查看活动来源页面</a>` : "未填写"}</span></div>
-    <div class="detail-row"><strong>报名信息：</strong><span>${registrationLink ? `<a href="${escapeAttribute(registrationLink)}" target="_blank" rel="noreferrer">查看报名入口</a>` : escapeHtml(event.registrationType || "以来源页面说明为准")}</span></div>`;
+    <div class="detail-row"><strong>报名链接：</strong><span>${registrationLink ? `<a href="${escapeAttribute(registrationLink)}" target="_blank" rel="noreferrer">${escapeHtml(event.name)}</a>` : "未填写"}</span></div>`;
   elements.detailTitle.textContent = event.name;
-  elements.detailRegisterLink.href = sourceLink;
-  elements.detailRegisterLink.textContent = "查看活动来源";
+  elements.detailRegisterLink.href = registrationLink || sourceLink;
+  elements.detailRegisterLink.textContent = registrationLink ? "立即报名" : "查看活动来源";
   elements.detailFavoriteButton.textContent = event.favorite ? "取消收藏" : "收藏";
 
   elements.detailContent.innerHTML = `
@@ -310,7 +329,7 @@ function openEventDetail(id) {
   if (typeof elements.eventDetailDialog.showModal === "function") {
     elements.eventDetailDialog.showModal();
   } else {
-    window.alert(`${event.name}\n\n时间：${formatDate(event.date)}\n地点：${event.city} ${event.location}\n活动来源：${event.sourceUrl || event.eventUrl || event.link || "未填写"}`);
+    window.alert(`${event.name}\n\n时间：${formatDate(event.date)}\n地点：${event.city} ${event.location}\n报名链接：${event.registrationUrl || event.link || "未填写"}`);
   }
 }
 
@@ -360,14 +379,9 @@ async function extractEventWithAi() {
 
 async function discoverRealEvents() {
   setDiscoverLoading(true);
-  setDiscoverStatus("正在发现真实活动，请稍候", "");
+  setDiscoverStatus("正在增量发现真实活动，请稍候", "");
 
   try {
-    events = [];
-    saveEvents();
-    render();
-    console.info("已清空旧数据");
-
     const apiBase = window.location.protocol === "file:" ? "http://127.0.0.1:3000" : "";
     const response = await fetch(`${apiBase}/api/discover-events`, { method: "POST" });
     const data = await response.json().catch(() => ({}));
@@ -377,7 +391,7 @@ async function discoverRealEvents() {
     }
 
     const discovered = Array.isArray(data.events) ? data.events.map(mapDiscoveredEvent).filter(Boolean) : [];
-    console.info(`已写入真实发现活动 ${discovered.length} 条`);
+    console.info(`固定库合并后活动 ${discovered.length} 条，新增 ${data.added || 0} 条，更新 ${data.updated || 0} 条`);
     console.info("已过滤 KPMG / 博鳌 / 观点文章 / 会后报道 / 无报名链接内容");
     console.info(`当前首页活动数量 ${discovered.length}`);
 
@@ -388,11 +402,12 @@ async function discoverRealEvents() {
       return;
     }
 
-    events = discovered;
+    mergeEventsPreservingUserState(discovered);
     saveEvents();
     render();
-    setDiscoverStatus(`已加载 ${discovered.length} 条符合条件的真实活动。已清除旧的资讯/报道/榜单数据。`, "success");
-    showToast("真实活动已刷新");
+    const warning = data.warning ? ` ${data.warning}` : "";
+    setDiscoverStatus(`已合并 ${discovered.length} 条 verified 活动，新增 ${data.added || 0} 条，更新 ${data.updated || 0} 条。${warning}`, "success");
+    showToast("真实活动库已更新");
   } catch (error) {
     setDiscoverStatus(error.message || "真实活动发现失败，请稍后重试", "error");
   } finally {
@@ -406,12 +421,11 @@ function mapDiscoveredEvent(event) {
 
   const now = new Date().toISOString();
   const registrationUrl = String(event.registrationUrl || "").trim();
-  const eventUrl = String(event.eventUrl || event.sourceUrl || registrationUrl || "").trim();
-  const sourceUrl = String(event.sourceUrl || event.eventUrl || registrationUrl || "").trim();
-  const sourceLink = sourceUrl || eventUrl || registrationUrl;
+  const eventUrl = String(event.eventUrl || event.sourceUrl || "").trim();
+  const sourceUrl = String(event.sourceUrl || event.eventUrl || "").trim();
 
   return {
-    id: createId(),
+    id: event.id || createId(),
     name: title,
     type: event.eventType || "其他",
     city: event.city || "",
@@ -420,7 +434,7 @@ function mapDiscoveredEvent(event) {
     endDate: normalizeExtractedDate(event.endDate) || "",
     organizer: event.organizer || "",
     source: event.source || "Verified source",
-    link: sourceLink,
+    link: registrationUrl,
     registrationUrl,
     registrationType: event.registrationType || "",
     sourceUrl,
@@ -440,6 +454,28 @@ function mapDiscoveredEvent(event) {
     createdAt: now,
     updatedAt: now
   };
+}
+
+function mergeEventsPreservingUserState(incomingEvents) {
+  const byId = new Map(events.map((event) => [event.id, event]));
+
+  incomingEvents.forEach((incoming) => {
+    const existing = byId.get(incoming.id)
+      || events.find((event) => eventIdentity(event) === eventIdentity(incoming));
+    if (existing && existing.id !== incoming.id) {
+      byId.delete(existing.id);
+    }
+    byId.set(existing?.id || incoming.id, {
+      ...incoming,
+      id: existing?.id || incoming.id,
+      favorite: existing?.favorite || false,
+      selectedForReport: existing?.selectedForReport || false,
+      createdAt: existing?.createdAt || incoming.createdAt,
+      updatedAt: incoming.updatedAt || new Date().toISOString()
+    });
+  });
+
+  events = [...byId.values()].filter(isAllowedStoredEvent).sort(sortByDate);
 }
 
 function mergeDiscoveredEvents(discovered) {
@@ -575,18 +611,20 @@ function clearData() {
   saveEvents();
   resetForm();
   render();
-  showToast("测试数据已清空");
+  loadVerifiedEventsFromServer();
+  showToast("本地测试数据已清空，正在恢复固定活动库");
 }
 
 function resetSampleData() {
-  const confirmed = window.confirm("确定清空本地活动池吗？V2 不再恢复假示例数据。");
+  const confirmed = window.confirm("确定重置本地活动池并重新读取 fixed verified 活动库吗？");
   if (!confirmed) return;
 
   events = [];
   saveEvents();
   resetForm();
   render();
-  showToast("本地活动池已清空");
+  loadVerifiedEventsFromServer();
+  showToast("正在重新读取固定活动库");
 }
 
 function scoreEvent(event) {
@@ -869,7 +907,7 @@ function buildPlainTextReport() {
     event.posterUrl ? `[活动海报] ${event.posterUrl}` : "[活动海报] 未填写",
     `地点：${event.city} ${event.location}`,
     `时间：${formatDate(event.date)}`,
-    `活动来源链接：${event.link || event.sourceUrl || event.eventUrl || "未填写"}`,
+    `报名链接：${event.registrationUrl || event.link || "未填写"}`,
     `备注：${event.summaryNote || event.description || "暂无备注。"}`
   ].join("\n")).join("\n\n");
 
@@ -901,7 +939,7 @@ function exportWordReport() {
     <p><strong>活动标题：</strong>${escapeHtml(event.name)}</p>
     <p><strong>地点：</strong>${escapeHtml(event.city)} ${escapeHtml(event.location)}</p>
     <p><strong>时间：</strong>${formatDate(event.date)}</p>
-    <p><strong>活动来源 / 报名信息：</strong>${registrationHtml}</p>
+    <p><strong>报名链接：</strong>${registrationHtml}</p>
     <p><strong>备注：</strong>${escapeHtml(cleanSummaryNote(event.summaryNote || event.description || "暂无备注。"))}</p>
   `;
   }).join("");
@@ -914,8 +952,8 @@ function exportWordReport() {
   <style>
     body { font-family: Georgia, "Times New Roman", "Songti SC", serif; max-width: 780px; margin: 40px auto; line-height: 1.65; color: #111827; }
     h2 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; margin-top: 32px; font-size: 20px; }
-    .poster-block { page-break-inside: avoid; margin: 10px 0 18px; }
-    img { display: block; width: 6.2in; max-width: 100%; height: auto; border: 1px solid #d7dee8; margin: 0 0 16px; }
+    .poster-block { page-break-inside: avoid; margin: 10px 0 18px; text-align: center; }
+    img { display: block; width: 5.7in; max-width: 75%; height: auto; border: 1px solid #d7dee8; margin: 0 auto 16px; }
     strong { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
   </style>
 </head>
@@ -942,19 +980,17 @@ function documentPosterUrl(posterUrl) {
 
 function reportRegistrationHtml(event) {
   const sourceUrl = event.sourceUrl || event.eventUrl || event.link || "";
-  const registrationUrl = event.registrationUrl || "";
+  const registrationUrl = event.registrationUrl || event.link || "";
   const parts = [];
 
-  if (sourceUrl) {
-    parts.push(`活动来源链接：<a href="${escapeAttribute(sourceUrl)}">${escapeHtml(sourceUrl)}</a>`);
+  if (registrationUrl) {
+    parts.push(`<a href="${escapeAttribute(registrationUrl)}">${escapeHtml(event.name)}</a>`);
   } else {
-    parts.push("活动来源链接：未填写");
+    parts.push("未填写");
   }
 
-  if (registrationUrl && registrationUrl !== sourceUrl) {
-    parts.push(`报名入口：<a href="${escapeAttribute(registrationUrl)}">${escapeHtml(registrationUrl)}</a>`);
-  } else if (event.registrationType) {
-    parts.push(`报名信息：${escapeHtml(event.registrationType)}`);
+  if (sourceUrl && sourceUrl !== registrationUrl) {
+    parts.push(`来源页面：<a href="${escapeAttribute(sourceUrl)}">${escapeHtml(sourceUrl)}</a>`);
   }
 
   return parts.join("<br>");
@@ -1135,6 +1171,4 @@ document.body.addEventListener("click", (event) => {
 });
 
 render();
-if (!events.length && window.location.protocol !== "file:") {
-  discoverRealEvents();
-}
+loadVerifiedEventsFromServer();
