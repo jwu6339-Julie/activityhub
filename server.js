@@ -13,8 +13,9 @@ const PORT = Number(process.env.PORT || 3000);
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 const MAX_INPUT_LENGTH = 18000;
 const MAX_BODY_SIZE = 1024 * 1024;
-const MAX_DISCOVERY_CANDIDATES = 36;
-const MAX_DISCOVERED_EVENTS = 24;
+const MAX_DISCOVERY_CANDIDATES = 10;
+const MAX_DISCOVERED_EVENTS = 5;
+const ENABLE_INCREMENTAL_DISCOVERY = false;
 const DATA_DIR = path.join(__dirname, "data");
 const VERIFIED_EVENTS_FILE = path.join(DATA_DIR, "verified-events.json");
 const GENERATED_POSTER_DIR = path.join(__dirname, "assets", "generated-posters");
@@ -54,19 +55,9 @@ const DISCOVERY_QUERIES = [
 ];
 
 const HIGH_CONFIDENCE_SOURCE_URLS = [
-  "https://www.build4asia.com/visit/",
-  "https://www.build4asia.com/visitor/",
-  "https://www.chinacleanexpo.com/cfme",
-  "https://www.chpmexpo.com/",
   "https://www.expocoss.com/",
   "https://www.opifair.com.cn/",
-  "https://gebt.gymf.com.cn/",
-  "https://gile.gymf.com.cn/",
-  "https://www.imxpo.com.cn/",
-  "https://www.messefrankfurt.com.cn/",
-  "https://www.ciihie.com/",
-  "https://www.fangchan.com/",
-  "https://www.ireexpo.com/"
+  "https://yoopay.cn/event/18522055"
 ];
 
 const NON_EVENT_PATTERN = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
@@ -165,6 +156,24 @@ async function handleDiscoverEvents(response) {
   const diagnostics = [];
   const existingEvents = await loadVerifiedEvents();
 
+  if (!ENABLE_INCREMENTAL_DISCOVERY) {
+    sendJson(response, 200, {
+      success: true,
+      events: sortVerifiedEvents(existingEvents),
+      totalVerified: existingEvents.length,
+      addedCount: 0,
+      updatedCount: 0,
+      keptExistingCount: existingEvents.length,
+      added: 0,
+      updated: 0,
+      sources: [{
+        status: "append_only_fixed_library",
+        reason: "实时随机发现已关闭；刷新只保留固定 verified 活动库，不覆盖、不删除。"
+      }]
+    });
+    return;
+  }
+
   try {
     await mkdir(GENERATED_POSTER_DIR, { recursive: true });
     const candidates = await discoverEventCandidates(diagnostics);
@@ -189,6 +198,10 @@ async function handleDiscoverEvents(response) {
       events: finalEvents,
       added,
       updated,
+      totalVerified: finalEvents.length,
+      addedCount: added,
+      updatedCount: updated,
+      keptExistingCount: existingEvents.length,
       sources: diagnostics
     });
   } catch (error) {
@@ -198,6 +211,10 @@ async function handleDiscoverEvents(response) {
       events: sortVerifiedEvents(existingEvents),
       added: 0,
       updated: 0,
+      totalVerified: existingEvents.length,
+      addedCount: 0,
+      updatedCount: 0,
+      keptExistingCount: existingEvents.length,
       sources: diagnostics
     });
   }
@@ -335,6 +352,7 @@ async function saveVerifiedEvents(events) {
 
 function normalizeVerifiedLibraryEvent(event) {
   const registrationUrl = sanitizeRegistrationUrl(event.registrationUrl || "");
+  const registrationType = String(event.registrationType || "").trim();
   return {
     id: String(event.id || createStableEventId(event)),
     title: String(event.title || "").trim(),
@@ -349,6 +367,7 @@ function normalizeVerifiedLibraryEvent(event) {
     sourceUrl: String(event.sourceUrl || event.eventUrl || "").trim(),
     eventUrl: String(event.eventUrl || event.sourceUrl || "").trim(),
     registrationUrl,
+    registrationType,
     posterUrl: String(event.posterUrl || "").trim(),
     themes: Array.isArray(event.themes) ? uniqueValues(event.themes) : [],
     aiSummary: cleanGeneratedSummary(event.aiSummary || event.notes || ""),
@@ -361,9 +380,9 @@ function normalizeVerifiedLibraryEvent(event) {
 }
 
 function isValidVerifiedLibraryEvent(event) {
-  if (!event.title || !event.date || !event.city || !event.location || !event.registrationUrl || !event.posterUrl) return false;
+  if (!event.title || !event.date || !event.city || !event.location || !(event.registrationUrl || event.registrationType) || !event.posterUrl) return false;
   if (parseEventDate(event.date) < new Date(`${MIN_DISCOVERY_DATE}T00:00:00`)) return false;
-  if (isArticleNewsInterview(event.title, `${event.aiSummary} ${event.notes}`, event.eventUrl || event.sourceUrl)) return false;
+  if (!event.locked && isArticleNewsInterview(event.title, `${event.aiSummary} ${event.notes}`, event.eventUrl || event.sourceUrl)) return false;
   if (!EVENT_TITLE_PATTERN.test(`${event.title} ${event.eventType}`)) return false;
   return isRelevantEvent(event, `${event.aiSummary} ${event.notes} ${event.themes.join(" ")}`);
 }
@@ -428,6 +447,7 @@ function mergeVerifiedEvent(existing, incoming) {
     sourceUrl: base.sourceUrl || supplement.sourceUrl,
     eventUrl: base.eventUrl || supplement.eventUrl,
     registrationUrl: base.registrationUrl || supplement.registrationUrl,
+    registrationType: base.registrationType || supplement.registrationType,
     posterUrl: existing.posterUrl || base.posterUrl || supplement.posterUrl,
     themes: uniqueValues([...(base.themes || []), ...(supplement.themes || [])]),
     aiSummary: cleanGeneratedSummary(base.aiSummary || supplement.aiSummary),
@@ -1450,7 +1470,7 @@ function isValidDirectRegistrationUrl(url, baseUrl = "") {
 
 function isBlockedRegistrationUrl(url) {
   const text = String(url || "").toLowerCase();
-  return /beian|recordcode|privacy|terms|contact|about|copyright|police|公安|备案|login|signin|sign-in|register\/account/.test(text);
+  return /beian|recordcode|privacy|terms|contact|about|copyright|police|公安|备案|login|signin|sign-in|register\/account|facebook\.com\/sharer|twitter\.com\/share|linkedin\.com\/share|wechat|share/.test(text);
 }
 
 function isBlockedCandidateUrl(url) {
