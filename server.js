@@ -15,6 +15,8 @@ const MAX_INPUT_LENGTH = 18000;
 const MAX_BODY_SIZE = 1024 * 1024;
 const MAX_DISCOVERY_CANDIDATES = 36;
 const MAX_DISCOVERED_EVENTS = 24;
+const DATA_DIR = path.join(__dirname, "data");
+const VERIFIED_EVENTS_FILE = path.join(DATA_DIR, "verified-events.json");
 const GENERATED_POSTER_DIR = path.join(__dirname, "assets", "generated-posters");
 const GENERATED_POSTER_PUBLIC_DIR = "assets/generated-posters";
 const MIN_DISCOVERY_DATE = "2026-05-01";
@@ -100,6 +102,11 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url === "/api/verified-events") {
+    await handleVerifiedEvents(response);
+    return;
+  }
+
   if (request.method === "GET" || request.method === "HEAD") {
     await serveStaticFile(request, response);
     return;
@@ -156,37 +163,57 @@ async function handleExtractEvent(request, response) {
 
 async function handleDiscoverEvents(response) {
   const diagnostics = [];
+  const existingEvents = await loadVerifiedEvents();
 
   try {
     await mkdir(GENERATED_POSTER_DIR, { recursive: true });
     const candidates = await discoverEventCandidates(diagnostics);
     const browser = await chromium.launch({ headless: true });
-    const events = [];
+    const discoveredEvents = [];
 
     try {
       for (const candidate of candidates.slice(0, MAX_DISCOVERY_CANDIDATES)) {
         const event = await processDiscoveredCandidate(candidate, browser, diagnostics);
-        if (event) events.push(event);
-        if (events.length >= MAX_DISCOVERED_EVENTS) break;
+        if (event) discoveredEvents.push(event);
+        if (discoveredEvents.length >= MAX_DISCOVERED_EVENTS) break;
       }
     } finally {
       await browser.close();
     }
 
-    const finalEvents = dedupeEvents(events)
-      .sort((a, b) => parseEventDate(b.date)?.getTime() - parseEventDate(a.date)?.getTime())
-      .slice(0, 18);
+    const { events: finalEvents, added, updated } = mergeVerifiedEvents(existingEvents, discoveredEvents);
+    await saveVerifiedEvents(finalEvents);
 
     sendJson(response, 200, {
       success: true,
       events: finalEvents,
+      added,
+      updated,
       sources: diagnostics
+    });
+  } catch (error) {
+    sendJson(response, 200, {
+      success: true,
+      warning: error.publicMessage || error.message || "增量发现失败，已保留固定 verified 活动库",
+      events: sortVerifiedEvents(existingEvents),
+      added: 0,
+      updated: 0,
+      sources: diagnostics
+    });
+  }
+}
+
+async function handleVerifiedEvents(response) {
+  try {
+    const events = await loadVerifiedEvents();
+    sendJson(response, 200, {
+      success: true,
+      events: sortVerifiedEvents(events)
     });
   } catch (error) {
     sendJson(response, error.statusCode || 500, {
       success: false,
       error: error.publicMessage || error.message || "真实活动发现失败，请稍后重试",
-      sources: diagnostics
     });
   }
 }
@@ -215,8 +242,17 @@ async function processDiscoveredCandidate(candidate, browser, diagnostics) {
     const registrationUrl = sanitizeRegistrationUrl(registration.url || inferRegistrationUrl(sourceUrl, page.text));
     result.registrationUrl = registrationUrl;
     result.registrationLinkFound = registrationUrl ? "yes" : "no";
+    if (!registrationUrl) {
+      result.kept = "filtered";
+      result.filteredReason = "filtered: no direct registration link";
+      logCandidateResult(result);
+      diagnostics.push({ url: sourceUrl, status: "filtered", title: pageTitle, reason: result.filteredReason });
+      return null;
+    }
+
     const slug = createSlug(pageTitle || candidate.url);
     const posterUrl = await extractPosterImage(page.html, sourceUrl, slug)
+      || await captureEventHeroScreenshot(sourceUrl, slug, browser)
       || await createDesignedPoster(pageTitle || candidate.title || sourceNameFromUrl(sourceUrl), sourceUrl, page.text, slug, browser);
     result.screenshotSuccess = posterUrl ? "yes" : "no";
     if (!posterUrl) {
@@ -279,6 +315,192 @@ async function processDiscoveredCandidate(candidate, browser, diagnostics) {
 
 function ensureNoRicsPostEventSeed() {
   console.log("RICS REITs event excluded unless an original registration page is discovered; post-event reports are filtered.");
+}
+
+async function loadVerifiedEvents() {
+  try {
+    const json = await readFile(VERIFIED_EVENTS_FILE, "utf8");
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return sortVerifiedEvents(parsed.map(normalizeVerifiedLibraryEvent).filter(isValidVerifiedLibraryEvent));
+  } catch {
+    return [];
+  }
+}
+
+async function saveVerifiedEvents(events) {
+  await mkdir(DATA_DIR, { recursive: true });
+  await writeFile(VERIFIED_EVENTS_FILE, `${JSON.stringify(sortVerifiedEvents(events), null, 2)}\n`, "utf8");
+}
+
+function normalizeVerifiedLibraryEvent(event) {
+  const registrationUrl = sanitizeRegistrationUrl(event.registrationUrl || "");
+  return {
+    id: String(event.id || createStableEventId(event)),
+    title: String(event.title || "").trim(),
+    eventType: String(event.eventType || "其他").trim(),
+    category: String(event.category || event.eventType || "").trim(),
+    city: String(event.city || "").trim(),
+    location: String(event.location || "").trim(),
+    date: normalizeDateString(event.date || ""),
+    endDate: normalizeDateString(event.endDate || ""),
+    organizer: String(event.organizer || "").trim(),
+    source: String(event.source || "").trim(),
+    sourceUrl: String(event.sourceUrl || event.eventUrl || "").trim(),
+    eventUrl: String(event.eventUrl || event.sourceUrl || "").trim(),
+    registrationUrl,
+    posterUrl: String(event.posterUrl || "").trim(),
+    themes: Array.isArray(event.themes) ? uniqueValues(event.themes) : [],
+    aiSummary: cleanGeneratedSummary(event.aiSummary || event.notes || ""),
+    notes: cleanGeneratedSummary(event.notes || ""),
+    verifiedSource: true,
+    locked: Boolean(event.locked),
+    createdAt: String(event.createdAt || new Date().toISOString()),
+    updatedAt: String(event.updatedAt || new Date().toISOString())
+  };
+}
+
+function isValidVerifiedLibraryEvent(event) {
+  if (!event.title || !event.date || !event.city || !event.location || !event.registrationUrl || !event.posterUrl) return false;
+  if (parseEventDate(event.date) < new Date(`${MIN_DISCOVERY_DATE}T00:00:00`)) return false;
+  if (isArticleNewsInterview(event.title, `${event.aiSummary} ${event.notes}`, event.eventUrl || event.sourceUrl)) return false;
+  if (!EVENT_TITLE_PATTERN.test(`${event.title} ${event.eventType}`)) return false;
+  return isRelevantEvent(event, `${event.aiSummary} ${event.notes} ${event.themes.join(" ")}`);
+}
+
+function mergeVerifiedEvents(existingEvents, discoveredEvents) {
+  const byKey = new Map();
+  let added = 0;
+  let updated = 0;
+
+  existingEvents.forEach((event) => {
+    const normalized = normalizeVerifiedLibraryEvent(event);
+    byKey.set(eventMatchKey(normalized), normalized);
+  });
+
+  discoveredEvents
+    .map(normalizeVerifiedLibraryEvent)
+    .filter(isValidVerifiedLibraryEvent)
+    .forEach((incoming) => {
+      const key = findExistingEventKey(byKey, incoming);
+      if (!key) {
+        byKey.set(eventMatchKey(incoming), {
+          ...incoming,
+          id: createStableEventId(incoming),
+          locked: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        added += 1;
+        return;
+      }
+
+      const existing = byKey.get(key);
+      const merged = mergeVerifiedEvent(existing, incoming);
+      byKey.delete(key);
+      byKey.set(eventMatchKey(merged), merged);
+      updated += 1;
+    });
+
+  return {
+    events: sortVerifiedEvents([...byKey.values()]),
+    added,
+    updated
+  };
+}
+
+function mergeVerifiedEvent(existing, incoming) {
+  const locked = Boolean(existing.locked);
+  const base = locked ? existing : chooseBetterEvent(existing, incoming);
+  const supplement = base === existing ? incoming : existing;
+
+  return {
+    ...base,
+    id: existing.id || incoming.id || createStableEventId(base),
+    title: locked ? existing.title : (base.title || supplement.title),
+    date: locked ? existing.date : (base.date || supplement.date),
+    city: locked ? existing.city : (base.city || supplement.city),
+    location: locked ? existing.location : (base.location || supplement.location),
+    eventType: base.eventType || supplement.eventType,
+    category: base.category || supplement.category,
+    organizer: base.organizer || supplement.organizer,
+    source: base.source || supplement.source,
+    sourceUrl: base.sourceUrl || supplement.sourceUrl,
+    eventUrl: base.eventUrl || supplement.eventUrl,
+    registrationUrl: base.registrationUrl || supplement.registrationUrl,
+    posterUrl: existing.posterUrl || base.posterUrl || supplement.posterUrl,
+    themes: uniqueValues([...(base.themes || []), ...(supplement.themes || [])]),
+    aiSummary: cleanGeneratedSummary(base.aiSummary || supplement.aiSummary),
+    notes: cleanGeneratedSummary(mergePlainNotes(base.notes, supplement.notes)),
+    verifiedSource: true,
+    locked,
+    createdAt: existing.createdAt || incoming.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function chooseBetterEvent(a, b) {
+  return sourcePriorityScore(b) + completenessScore(b) > sourcePriorityScore(a) + completenessScore(a) ? b : a;
+}
+
+function sourcePriorityScore(event) {
+  const text = `${event.source || ""} ${event.sourceUrl || ""} ${event.eventUrl || ""}`.toLowerCase();
+  if (/official|官网|官方|build4asia|opifair|rics|yoopay/.test(text)) return 30;
+  if (/mp\.weixin|wechat|公众号/.test(text)) return 20;
+  if (/event|expo|fair|conference|yoopay|huodong/.test(text)) return 12;
+  return 0;
+}
+
+function findExistingEventKey(map, incoming) {
+  const incomingKey = eventMatchKey(incoming);
+  if (map.has(incomingKey)) return incomingKey;
+  for (const [key, existing] of map.entries()) {
+    if (isSameEvent(existing, incoming)) return key;
+  }
+  return "";
+}
+
+function isSameEvent(a, b) {
+  if (!a.date || !b.date || a.date !== b.date) return false;
+  if ((a.city || "") !== (b.city || "")) return false;
+  return titleSimilarity(a.title, b.title) >= 0.62;
+}
+
+function eventMatchKey(event) {
+  return [normalizeTitle(event.title), event.date, event.city].join("|");
+}
+
+function normalizeTitle(title = "") {
+  return String(title || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function titleSimilarity(a = "", b = "") {
+  const left = new Set(Array.from(normalizeTitle(a)));
+  const right = new Set(Array.from(normalizeTitle(b)));
+  if (!left.size || !right.size) return 0;
+  const shared = [...left].filter((char) => right.has(char)).length;
+  return shared / Math.max(left.size, right.size);
+}
+
+function createStableEventId(event) {
+  return `verified-${createSlug(`${event.title || "event"}-${event.date || ""}-${event.city || ""}`)}`;
+}
+
+function sortVerifiedEvents(events) {
+  return [...events].sort((a, b) => {
+    const left = parseEventDate(a.date)?.getTime() || 0;
+    const right = parseEventDate(b.date)?.getTime() || 0;
+    return right - left;
+  });
+}
+
+function normalizeDateString(value) {
+  const parsed = parseEventDate(value);
+  if (!parsed) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 async function prepareSourceText(input) {
@@ -960,10 +1182,16 @@ function applyKnownSourceCorrections(event) {
 }
 
 function evaluateDiscoveredEvent(event, pageText = "") {
+  if (!event.registrationUrl) {
+    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no direct registration link" };
+  }
+
   if (!event.city) {
     return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no city" };
   }
-  if (!event.location) event.location = "详见活动来源页面";
+  if (!event.location) {
+    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no location" };
+  }
 
   if (!/(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|会议|培训|推介会|交流会|展会|conference|summit|forum|expo|exhibition|seminar|training)/i.test(event.eventType || event.title)) {
     return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: invalid event type" };
@@ -1222,7 +1450,7 @@ function isValidDirectRegistrationUrl(url, baseUrl = "") {
 
 function isBlockedRegistrationUrl(url) {
   const text = String(url || "").toLowerCase();
-  return /beian|recordcode|privacy|terms|contact|about|copyright|police|公安|备案|login|signin|sign-in|passport|account|signup\/signup|register\/account/.test(text);
+  return /beian|recordcode|privacy|terms|contact|about|copyright|police|公安|备案|login|signin|sign-in|register\/account/.test(text);
 }
 
 function isBlockedCandidateUrl(url) {
@@ -1248,6 +1476,14 @@ function stripHash(url) {
 
 function mergePlainNotes(...values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))].join("；");
+}
+
+function cleanGeneratedSummary(value) {
+  return String(value || "")
+    .replace(/未找到直接报名链接|不要编造报名链接|不要伪造报名链接/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[；;，,。\s]+$/g, "")
+    .trim();
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
