@@ -292,7 +292,9 @@ async function loadVerifiedEvents() {
     if (!Array.isArray(parsed)) return [];
     const normalized = await Promise.all(parsed.map(async (event) => {
       const normalizedEvent = normalizeVerifiedLibraryEvent(event);
-      if (!normalizedEvent.posterUrl || !existsSync(path.join(__dirname, normalizedEvent.posterUrl))) {
+      const posterPath = normalizedEvent.posterUrl ? path.join(__dirname, normalizedEvent.posterUrl) : "";
+      const invalidPng = /\.png$/i.test(normalizedEvent.posterUrl || "") && (!existsSync(posterPath) || !isPngFile(posterPath));
+      if (!normalizedEvent.posterUrl || !existsSync(posterPath) || invalidPng) {
         normalizedEvent.posterUrl = await generateFallbackPoster(normalizedEvent);
       }
       return normalizedEvent;
@@ -952,11 +954,11 @@ async function generateFallbackPoster(event) {
   const explicitName = event.posterUrl && event.posterUrl.startsWith(`${GENERATED_POSTER_PUBLIC_DIR}/`)
     ? path.basename(event.posterUrl)
     : "";
-  const fileName = explicitName || `${slugify(event.id || event.title || "activityhub-event", { lower: true, strict: true })}.svg`;
+  const fileName = explicitName || `${slugify(event.id || event.title || "activityhub-event", { lower: true, strict: true })}.png`;
   const filePath = path.join(GENERATED_POSTER_DIR, fileName);
   const publicPath = `${GENERATED_POSTER_PUBLIC_DIR}/${fileName}`;
 
-  if (existsSync(filePath)) return publicPath;
+  if (existsSync(filePath) && (!/\.png$/i.test(fileName) || isPngFile(filePath))) return publicPath;
 
   const titleLines = wrapSvgText(event.title || "ActivityHub 活动", 15, 4);
   const titleTspans = titleLines
@@ -995,8 +997,34 @@ async function generateFallbackPoster(event) {
   <text x="64" y="570" fill="#dbeafe" font-size="22" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">${escapeSvg(event.eventType || "活动")} · ${escapeSvg(event.category || "商业地产")}</text>
 </svg>`;
 
+  if (/\.png$/i.test(fileName)) {
+    await renderSvgPosterToPng(svg, filePath);
+    return publicPath;
+  }
+
   await writeFile(filePath, svg, "utf8");
   return publicPath;
+}
+
+function isPngFile(filePath) {
+  try {
+    const signature = readFileSync(filePath).subarray(0, 8);
+    return signature.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  } catch {
+    return false;
+  }
+}
+
+async function renderSvgPosterToPng(svg, filePath) {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1080, height: 640 }, deviceScaleFactor: 2 });
+  try {
+    await page.setContent(`<html><body style="margin:0">${svg}</body></html>`, { waitUntil: "domcontentloaded" });
+    await page.screenshot({ path: filePath, fullPage: false });
+  } finally {
+    await page.close().catch(() => {});
+    await browser.close().catch(() => {});
+  }
 }
 
 function wrapSvgText(text, maxChars = 14, maxLines = 3) {
