@@ -13,8 +13,8 @@ const PORT = Number(process.env.PORT || 3000);
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 const MAX_INPUT_LENGTH = 18000;
 const MAX_BODY_SIZE = 1024 * 1024;
-const MAX_DISCOVERY_CANDIDATES = 16;
-const MAX_DISCOVERED_EVENTS = 12;
+const MAX_DISCOVERY_CANDIDATES = 36;
+const MAX_DISCOVERED_EVENTS = 24;
 const GENERATED_POSTER_DIR = path.join(__dirname, "assets", "generated-posters");
 const GENERATED_POSTER_PUBLIC_DIR = "assets/generated-posters";
 const MIN_DISCOVERY_DATE = "2026-05-01";
@@ -39,7 +39,16 @@ const DISCOVERY_QUERIES = [
   "2026 智慧楼宇 论坛 报名",
   "2026房地产不良资产运营大会 报名",
   "RICS REITs赋能存量资产价值跃升研讨会 报名",
-  "2026中国商业地产投资专业展览会 报名"
+  "2026中国商业地产投资专业展览会 报名",
+  "2026 上海 商业地产 峰会 报名",
+  "2026 北京 商业地产 论坛 报名",
+  "2026 广州 地产科技 活动 报名",
+  "2026 深圳 智慧楼宇 展会 报名",
+  "2026 成都 产业园区 论坛 报名",
+  "2026 资产管理 商业不动产 论坛 报名",
+  "2026 企业不动产 CRE 活动 报名",
+  "2026 办公空间 办公租赁 峰会 报名",
+  "2026 物业设施管理 展会 报名"
 ];
 
 const HIGH_CONFIDENCE_SOURCE_URLS = [
@@ -50,7 +59,12 @@ const HIGH_CONFIDENCE_SOURCE_URLS = [
   "https://www.expocoss.com/",
   "https://www.opifair.com.cn/",
   "https://gebt.gymf.com.cn/",
-  "https://gile.gymf.com.cn/"
+  "https://gile.gymf.com.cn/",
+  "https://www.imxpo.com.cn/",
+  "https://www.messefrankfurt.com.cn/",
+  "https://www.ciihie.com/",
+  "https://www.fangchan.com/",
+  "https://www.ireexpo.com/"
 ];
 
 const NON_EVENT_PATTERN = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
@@ -201,17 +215,9 @@ async function processDiscoveredCandidate(candidate, browser, diagnostics) {
     const registrationUrl = sanitizeRegistrationUrl(registration.url || inferRegistrationUrl(sourceUrl, page.text));
     result.registrationUrl = registrationUrl;
     result.registrationLinkFound = registrationUrl ? "yes" : "no";
-    if (!registrationUrl) {
-      result.kept = "filtered";
-      result.filteredReason = "filtered: no direct registration link";
-      logCandidateResult(result);
-      diagnostics.push({ url: sourceUrl, status: "filtered", title: pageTitle, reason: result.filteredReason });
-      return null;
-    }
-
     const slug = createSlug(pageTitle || candidate.url);
     const posterUrl = await extractPosterImage(page.html, sourceUrl, slug)
-      || await captureEventHeroScreenshot(sourceUrl, slug, browser);
+      || await createDesignedPoster(pageTitle || candidate.title || sourceNameFromUrl(sourceUrl), sourceUrl, page.text, slug, browser);
     result.screenshotSuccess = posterUrl ? "yes" : "no";
     if (!posterUrl) {
       result.kept = "filtered";
@@ -684,6 +690,77 @@ async function extractPosterImage(html, baseUrl, slug) {
   return saveRemoteImage(best.url, `${slug}-poster`);
 }
 
+async function createDesignedPoster(title = "", sourceUrl = "", pageText = "", slug = "event", browser = null) {
+  try {
+    await mkdir(GENERATED_POSTER_DIR, { recursive: true });
+    const cleanedTitle = cleanText(title || sourceNameFromUrl(sourceUrl) || "商业地产活动").slice(0, 42);
+    const dateMatch = String(pageText || "").match(/20\d{2}(?:年|[-.\/])\s*\d{1,2}(?:月|[-.\/])\s*\d{1,2}/);
+    const cityMatch = String(pageText || "").match(/(上海|北京|广州|深圳|成都|香港|杭州|南京|苏州|天津|重庆|武汉|西安)/);
+    const subtitle = [cityMatch?.[1], dateMatch?.[0]].filter(Boolean).join(" · ") || sourceNameFromUrl(sourceUrl);
+    const topic = DISCOVERY_KEYWORDS.find((keyword) => String(pageText || "").includes(keyword)) || "商业地产活动";
+    const lines = wrapSvgText(cleanedTitle, 14, 3);
+    const titleTspans = lines.map((line, index) => `<tspan x="72" dy="${index === 0 ? 0 : 40}">${escapeSvg(line)}</tspan>`).join("");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="640" viewBox="0 0 1080 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f2f46"/>
+      <stop offset="1" stop-color="#1f5f7a"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#173f5d"/>
+      <stop offset="1" stop-color="#0f2f46"/>
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="640" fill="url(#bg)"/>
+  <circle cx="916" cy="95" r="160" fill="#ffffff" opacity="0.08"/>
+  <circle cx="88" cy="544" r="180" fill="#c8962e" opacity="0.13"/>
+  <rect x="54" y="58" width="972" height="524" rx="36" fill="url(#card)" stroke="#d9e2ec" stroke-opacity="0.18"/>
+  <text x="72" y="132" fill="#c8962e" font-size="34" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700">${escapeSvg(topic)}</text>
+  <text x="72" y="258" fill="#ffffff" font-size="48" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700">${titleTspans}</text>
+  <text x="72" y="506" fill="#e8f1f5" font-size="30" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="600">${escapeSvg(subtitle)}</text>
+  <text x="72" y="550" fill="#d9e2ec" font-size="24" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">来源：${escapeSvg(sourceNameFromUrl(sourceUrl))}</text>
+  <g opacity="0.35" stroke="#ffffff" fill="none" stroke-width="3">
+    <path d="M780 420h160M780 460h110M780 500h190"/>
+    <rect x="735" y="360" width="260" height="180" rx="18"/>
+  </g>
+</svg>`;
+    const baseFileName = `${slug}-poster-${Date.now()}`;
+    if (browser) {
+      const page = await browser.newPage({ viewport: { width: 1080, height: 640 }, deviceScaleFactor: 1 });
+      try {
+        const pngFileName = `${baseFileName}.png`;
+        const pngPath = path.join(GENERATED_POSTER_DIR, pngFileName);
+        await page.setContent(`<html><body style="margin:0">${svg}</body></html>`, { waitUntil: "domcontentloaded" });
+        await page.screenshot({ path: pngPath, fullPage: false });
+        return `${GENERATED_POSTER_PUBLIC_DIR}/${pngFileName}`;
+      } finally {
+        await page.close().catch(() => {});
+      }
+    }
+    const fileName = `${baseFileName}.svg`;
+    await writeFile(path.join(GENERATED_POSTER_DIR, fileName), svg, "utf8");
+    return `${GENERATED_POSTER_PUBLIC_DIR}/${fileName}`;
+  } catch {
+    return "";
+  }
+}
+
+function wrapSvgText(text, maxChars = 14, maxLines = 3) {
+  const chars = Array.from(String(text || ""));
+  const lines = [];
+  for (let i = 0; i < chars.length && lines.length < maxLines; i += maxChars) {
+    lines.push(chars.slice(i, i + maxChars).join(""));
+  }
+  if (chars.length > maxChars * maxLines && lines.length) {
+    lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, Math.max(0, maxChars - 1))}…`;
+  }
+  return lines.length ? lines : ["商业地产活动"];
+}
+
+function escapeSvg(value) {
+  return String(value || "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+}
+
 async function saveRemoteImage(url, slug) {
   try {
     const response = await fetchWithTimeout(url, {
@@ -734,12 +811,13 @@ async function summarizeEventWithAI({ pageText, url, sourceName, registrationUrl
                 "请判断页面是否包含商业地产、地产科技、REITs、办公租赁、智慧楼宇、设施管理、资产管理、存量资产或商业空间相关活动。",
                 "只提取真实活动、会议、展会、峰会、论坛、沙龙、研讨会或培训。",
                 "不要把新闻报道、访谈、观点文章、榜单、白皮书、政策解读或研究报告提取为活动。",
-                "只输出 JSON Schema 要求的字段。不要编造报名链接、海报或地点。",
+                "只输出 JSON Schema 要求的字段。不要编造报名链接、海报、地点或未在页面中出现的信息。",
                 "registrationUrl 只能使用用户提供的候选报名链接；没有则为空字符串。",
-                "posterUrl 只能使用用户提供的本地截图路径；没有则为空字符串。",
+                "posterUrl 只能使用用户提供的本地海报/图片路径；没有则为空字符串。",
+                "sourceUrl/eventUrl 必须保留活动来源页面，前端会把它作为活动来源链接展示。",
                 "date 优先返回 YYYY-MM-DD；如果只知道日期范围，返回开始日期。",
                 "如果无法识别明确活动日期，请 date 返回空字符串，并在 notes 说明。",
-                "aiSummary 写 140-220 字中文备注，说明活动做什么、核心议题、适合参会人群、与商业地产/地产科技/REITs/资管/租赁/设施管理等主题的关系。"
+                "aiSummary 写 200-250 字中文备注，概括这个活动是做什么的、核心议题、主办/参展/参会群体、适合销售关注的客户类型、与商业地产/地产科技/REITs/资管/租赁/设施管理等主题的关系。不要在备注最后追加‘未找到报名链接’或‘不要伪造报名链接’这类提示。"
               ].join("\n")
             }
           ]
@@ -805,7 +883,7 @@ function discoveredEventSchema() {
       registrationUrl: { type: "string" },
       posterUrl: { type: "string" },
       themes: { type: "array", items: { type: "string" } },
-      aiSummary: { type: "string", description: "100-150字中文活动简介" },
+      aiSummary: { type: "string", description: "200-250字中文活动备注" },
       notes: { type: "string" }
     },
     required: [
@@ -837,8 +915,8 @@ function normalizeDiscoveredEvent(event) {
     title: String(event.title || "").trim(),
     eventType: String(event.eventType || "其他"),
     category: String(event.category || event.eventType || ""),
-    city: String(event.city || ""),
-    location: String(event.location || ""),
+    city: String(event.city || inferCityFromText(`${event.title || ""} ${event.aiSummary || ""} ${event.notes || ""}`) || ""),
+    location: String(event.location || (event.city ? "详见活动来源页面" : "")),
     date: String(event.date || ""),
     endDate: String(event.endDate || ""),
     organizer: String(event.organizer || ""),
@@ -849,9 +927,7 @@ function normalizeDiscoveredEvent(event) {
     posterUrl: String(event.posterUrl || ""),
     themes: Array.isArray(event.themes) ? event.themes.map((theme) => String(theme)).filter(Boolean) : [],
     aiSummary: String(event.aiSummary || ""),
-    notes: registrationUrl
-      ? notes
-      : notes.includes("未找到直接报名链接") ? notes : mergePlainNotes(notes, "未找到直接报名链接")
+    notes: notes.replace(/未找到直接报名链接|不要编造报名链接|不要伪造报名链接/g, "").replace(/[；;，,。\s]+$/g, "")
   };
 }
 
@@ -884,13 +960,10 @@ function applyKnownSourceCorrections(event) {
 }
 
 function evaluateDiscoveredEvent(event, pageText = "") {
-  if (!event.registrationUrl) {
-    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no direct registration link" };
+  if (!event.city) {
+    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no city" };
   }
-
-  if (!event.city || !event.location) {
-    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no city or location" };
-  }
+  if (!event.location) event.location = "详见活动来源页面";
 
   if (!/(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|会议|培训|推介会|交流会|展会|conference|summit|forum|expo|exhibition|seminar|training)/i.test(event.eventType || event.title)) {
     return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: invalid event type" };
@@ -939,6 +1012,11 @@ function isRelevantEvent(event, pageText = "") {
 
   return DISCOVERY_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()))
     || /(reit|proptech|commercial real estate|facility management|office leasing|asset management|logistics real estate)/i.test(text);
+}
+
+function inferCityFromText(text = "") {
+  const match = String(text || "").match(/(上海|北京|广州|深圳|成都|香港|杭州|南京|苏州|天津|重庆|武汉|西安|宁波|厦门|青岛|郑州|长沙|合肥)/);
+  return match ? match[1] : "";
 }
 
 function parseEventDate(value, context = "") {
@@ -1018,9 +1096,9 @@ function scoreCandidate(title = "", context = "", url = "") {
 
 function isRelevantSearchResult(title = "", url = "", query = "") {
   const text = `${title} ${url} ${query}`;
-  if (!EVENT_TITLE_PATTERN.test(text)) return false;
-  if (NON_EVENT_PATTERN.test(text) || POST_EVENT_PATTERN.test(text)) return false;
-  if (isBlockedCandidateUrl(url) || isArticleUrl(url)) return false;
+  if (!EVENT_TITLE_PATTERN.test(text) && !DISCOVERY_KEYWORDS.some((keyword) => text.toLowerCase().includes(keyword.toLowerCase()))) return false;
+  if (POST_EVENT_PATTERN.test(text)) return false;
+  if (isBlockedCandidateUrl(url)) return false;
 
   const resultText = `${title} ${url}`;
   const hasTopic = DISCOVERY_KEYWORDS.some((keyword) => resultText.toLowerCase().includes(keyword.toLowerCase()))
@@ -1035,10 +1113,13 @@ function isRelevantSearchResult(title = "", url = "", query = "") {
 }
 
 function isArticleNewsInterview(title = "", pageText = "", url = "") {
-  const text = `${title} ${String(pageText || "").slice(0, 1600)} ${url}`;
-  if (POST_EVENT_PATTERN.test(text)) return true;
-  if (NON_EVENT_PATTERN.test(text)) return true;
-  if (isArticleUrl(url) && !REGISTRATION_PATTERN.test(text)) return true;
+  const titleAndUrl = `${title} ${url}`;
+  const firstText = String(pageText || "").slice(0, 1600);
+  const combined = `${titleAndUrl} ${firstText}`;
+  if (POST_EVENT_PATTERN.test(combined)) return true;
+  if (NON_EVENT_PATTERN.test(titleAndUrl)) return true;
+  if (isArticleUrl(url) && !REGISTRATION_PATTERN.test(combined) && !EVENT_TITLE_PATTERN.test(combined)) return true;
+  if (NON_EVENT_PATTERN.test(firstText.slice(0, 600)) && !EVENT_TITLE_PATTERN.test(combined)) return true;
   return false;
 }
 
@@ -1303,8 +1384,8 @@ function normalizeExtractedEvent(event) {
   return {
     title: String(event.title || ""),
     eventType: String(event.eventType || ""),
-    city: String(event.city || ""),
-    location: String(event.location || ""),
+    city: String(event.city || inferCityFromText(`${event.title || ""} ${event.aiSummary || ""} ${event.notes || ""}`) || ""),
+    location: String(event.location || (event.city ? "详见活动来源页面" : "")),
     date: String(event.date || ""),
     organizer: String(event.organizer || ""),
     source: String(event.source || ""),
