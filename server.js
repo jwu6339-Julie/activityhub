@@ -23,14 +23,8 @@ const DISCOVERY_KEYWORDS = [
   "商业楼宇", "资产管理", "存量资产", "商业空间"
 ];
 
-const VERIFIED_SOURCE_URLS = [
-  "https://www.expocoss.com/",
-  "https://www.build4asia.com/visitor/",
-  "https://www.build4asia.com/zh/",
-  "https://www.chinacleanexpo.com/cfme",
-  "https://www.chpmexpo.com/",
-  "https://pujiang.sse.com.cn/update/notice/bond/c/c_20260326_10813113.shtml"
-];
+// Broad source crawling is intentionally disabled for V3. /api/discover-events only returns VERIFIED_SEED_EVENTS.
+const VERIFIED_SOURCE_URLS = [];
 
 const VERIFIED_SEED_EVENTS = [
   {
@@ -69,6 +63,7 @@ const FILTERED_VERIFIED_SEEDS = [
   {
     title: "RICS REITs赋能存量资产价值跃升研讨会",
     sourceUrl: "公开搜索结果",
+    // RICS REITs event excluded because current public source is post-event report and no direct registration page was found.
     reason: "filtered: post-event news / no original registration page"
   }
 ];
