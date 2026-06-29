@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="640" viewBox="0 0 1080 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b2344"/>
+      <stop offset="52%" stop-color="#173f6f"/>
+      <stop offset="100%" stop-color="#d9a441"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.04"/>
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="640" fill="url(#bg)"/>
+  <circle cx="900" cy="90" r="180" fill="#ffffff" opacity="0.08"/>
+  <circle cx="930" cy="500" r="250" fill="#0b2344" opacity="0.24"/>
+  <rect x="48" y="48" width="984" height="544" rx="34" fill="url(#panel)" stroke="#ffffff" stroke-opacity="0.22"/>
+  <text x="64" y="105" fill="#f7c869" font-size="26" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700" letter-spacing="2">ACTIVITYHUB VERIFIED EVENT</text>
+  <text x="64" y="190" fill="#ffffff" font-size="38" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800"><tspan x="64" dy="0">2026房地产不良资产运营大会</tspan></text>
+  <g transform="translate(64 452)">
+    <rect width="952" height="84" rx="18" fill="#ffffff" opacity="0.13"/>
+    <text x="24" y="35" fill="#f8fafc" font-size="27" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700">2026-06-12</text>
+    <text x="24" y="66" fill="#dbeafe" font-size="22" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">北京 · 北京厦航嘉年华酒店</text>
+    <text x="610" y="52" fill="#fef3c7" font-size="22" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" text-anchor="middle">房地产不良资产 / 存量资产 / 资产运营 / 特殊机会投资</text>
+  </g>
+  <text x="64" y="570" fill="#dbeafe" font-size="22" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">大会 · 房地产不良资产</text>
+</svg>
