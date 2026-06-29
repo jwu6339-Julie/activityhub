@@ -1,6 +1,6 @@
 const STORAGE_KEY = "activityhub_events_v1";
 const DATA_SCHEMA_KEY = "activityhub_data_schema_version";
-const DATA_SCHEMA_VERSION = "real-discovery-v5";
+const DATA_SCHEMA_VERSION = "real-discovery-v6-source-links";
 const SUBSCRIBE_KEY = "activityhub_subscribe_note_v1";
 let activeDetailId = null;
 
@@ -86,7 +86,7 @@ function loadEvents() {
   if (localStorage.getItem(DATA_SCHEMA_KEY) !== DATA_SCHEMA_VERSION) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
     localStorage.setItem(DATA_SCHEMA_KEY, DATA_SCHEMA_VERSION);
-    console.info("已清空旧数据：localStorage schema upgraded to real-discovery-v5");
+    console.info("已清空旧数据：localStorage schema upgraded to real-discovery-v6-source-links");
     return [];
   }
 
@@ -128,8 +128,8 @@ function normalizeEvent(event) {
     salesType: event.salesType || "",
     summaryNote: event.summaryNote || event.aiSummary || "",
     eventUrl: event.eventUrl || "",
-    sourceUrl: event.sourceUrl || event.eventUrl || "",
-    registrationUrl: event.registrationUrl || event.link || "",
+    sourceUrl: event.sourceUrl || event.eventUrl || event.link || "",
+    registrationUrl: event.registrationUrl || "",
     registrationType: event.registrationType || "",
     verifiedSource: Boolean(event.verifiedSource),
     favorite: Boolean(event.favorite),
@@ -144,7 +144,8 @@ function isAllowedStoredEvent(event) {
   const nonEventPattern = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
   const eventTitlePattern = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
   const date = normalizeExtractedDate(event.date);
-  return Boolean(event.link)
+  const hasSourceLink = Boolean(event.link || event.sourceUrl || event.eventUrl || event.registrationUrl);
+  return hasSourceLink
     && Boolean(event.posterUrl)
     && Boolean(event.city)
     && Boolean(event.location)
@@ -275,13 +276,14 @@ function openEventDetail(id) {
 
   activeDetailId = id;
   const tags = splitTags(event.tags);
-  const actionUrl = event.link || event.sourceUrl || event.eventUrl || "#";
-  const registrationMarkup = event.link
-    ? `<div class="detail-row"><strong>报名链接：</strong><span><a href="${escapeAttribute(event.link)}" target="_blank" rel="noreferrer">${escapeHtml(event.name)}</a></span></div>`
-    : `<div class="detail-row"><strong>报名方式：</strong><span>${escapeHtml(event.registrationType || "人工确认报名")}${actionUrl !== "#" ? `，<a href="${escapeAttribute(actionUrl)}" target="_blank" rel="noreferrer">查看来源页面</a>` : ""}</span></div>`;
+  const sourceLink = event.sourceUrl || event.eventUrl || event.link || event.registrationUrl || "#";
+  const registrationLink = event.registrationUrl || "";
+  const registrationMarkup = `
+    <div class="detail-row"><strong>活动来源链接：</strong><span>${sourceLink !== "#" ? `<a href="${escapeAttribute(sourceLink)}" target="_blank" rel="noreferrer">查看活动来源页面</a>` : "未填写"}</span></div>
+    <div class="detail-row"><strong>报名信息：</strong><span>${registrationLink ? `<a href="${escapeAttribute(registrationLink)}" target="_blank" rel="noreferrer">查看报名入口</a>` : escapeHtml(event.registrationType || "以来源页面说明为准")}</span></div>`;
   elements.detailTitle.textContent = event.name;
-  elements.detailRegisterLink.href = actionUrl;
-  elements.detailRegisterLink.textContent = event.link ? "立即报名" : "查看来源页面";
+  elements.detailRegisterLink.href = sourceLink;
+  elements.detailRegisterLink.textContent = "查看活动来源";
   elements.detailFavoriteButton.textContent = event.favorite ? "取消收藏" : "收藏";
 
   elements.detailContent.innerHTML = `
@@ -308,7 +310,7 @@ function openEventDetail(id) {
   if (typeof elements.eventDetailDialog.showModal === "function") {
     elements.eventDetailDialog.showModal();
   } else {
-    window.alert(`${event.name}\n\n时间：${formatDate(event.date)}\n地点：${event.city} ${event.location}\n报名方式：${event.link || event.registrationType || "人工确认报名"}`);
+    window.alert(`${event.name}\n\n时间：${formatDate(event.date)}\n地点：${event.city} ${event.location}\n活动来源：${event.sourceUrl || event.eventUrl || event.link || "未填写"}`);
   }
 }
 
@@ -404,8 +406,9 @@ function mapDiscoveredEvent(event) {
 
   const now = new Date().toISOString();
   const registrationUrl = String(event.registrationUrl || "").trim();
-  const eventUrl = String(event.eventUrl || event.sourceUrl || "").trim();
-  const sourceUrl = String(event.sourceUrl || event.eventUrl || "").trim();
+  const eventUrl = String(event.eventUrl || event.sourceUrl || registrationUrl || "").trim();
+  const sourceUrl = String(event.sourceUrl || event.eventUrl || registrationUrl || "").trim();
+  const sourceLink = sourceUrl || eventUrl || registrationUrl;
 
   return {
     id: createId(),
@@ -417,7 +420,7 @@ function mapDiscoveredEvent(event) {
     endDate: normalizeExtractedDate(event.endDate) || "",
     organizer: event.organizer || "",
     source: event.source || "Verified source",
-    link: registrationUrl,
+    link: sourceLink,
     registrationUrl,
     registrationType: event.registrationType || "",
     sourceUrl,
@@ -426,8 +429,8 @@ function mapDiscoveredEvent(event) {
     posterUrl: event.posterUrl || "",
     tags: Array.isArray(event.themes) ? event.themes.join(", ") : "",
     salesType: "",
-    summaryNote: event.aiSummary || "",
-    description: event.aiSummary || "",
+    summaryNote: cleanSummaryNote(event.aiSummary || event.notes || ""),
+    description: cleanSummaryNote(event.aiSummary || ""),
     recommendationLevel: "中",
     recommendReason: event.notes || "",
     status: "待评估",
@@ -625,7 +628,7 @@ function scoreEvent(event) {
   const completenessFields = [
     ["活动时间", event.date],
     ["活动地点", event.location],
-    ["报名链接", event.link],
+    ["活动来源链接", event.link || event.sourceUrl || event.eventUrl],
     ["主办方", event.organizer],
     ["活动简介", event.description]
   ];
@@ -866,7 +869,7 @@ function buildPlainTextReport() {
     event.posterUrl ? `[活动海报] ${event.posterUrl}` : "[活动海报] 未填写",
     `地点：${event.city} ${event.location}`,
     `时间：${formatDate(event.date)}`,
-    `报名链接：${event.link || "未填写"}`,
+    `活动来源链接：${event.link || event.sourceUrl || event.eventUrl || "未填写"}`,
     `备注：${event.summaryNote || event.description || "暂无备注。"}`
   ].join("\n")).join("\n\n");
 
@@ -894,12 +897,12 @@ function exportWordReport() {
     const registrationHtml = reportRegistrationHtml(event);
     return `
     <h2>TOPIC ${index + 1}：${escapeHtml(event.name)}</h2>
-    ${posterUrl ? `<p><img src="${escapeAttribute(posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报"></p>` : "<p>[活动海报] 未填写</p>"}
+    <div class="poster-block">${posterUrl ? `<img src="${escapeAttribute(posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报">` : "[活动海报] 未填写"}</div>
     <p><strong>活动标题：</strong>${escapeHtml(event.name)}</p>
     <p><strong>地点：</strong>${escapeHtml(event.city)} ${escapeHtml(event.location)}</p>
     <p><strong>时间：</strong>${formatDate(event.date)}</p>
-    <p><strong>报名方式 / 报名链接：</strong>${registrationHtml}</p>
-    <p><strong>备注：</strong>${escapeHtml(event.summaryNote || event.description || "暂无备注。")}</p>
+    <p><strong>活动来源 / 报名信息：</strong>${registrationHtml}</p>
+    <p><strong>备注：</strong>${escapeHtml(cleanSummaryNote(event.summaryNote || event.description || "暂无备注。"))}</p>
   `;
   }).join("");
 
@@ -911,7 +914,8 @@ function exportWordReport() {
   <style>
     body { font-family: Georgia, "Times New Roman", "Songti SC", serif; max-width: 780px; margin: 40px auto; line-height: 1.65; color: #111827; }
     h2 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; margin-top: 32px; font-size: 20px; }
-    img { display: block; width: 420px; max-width: 100%; max-height: 520px; object-fit: contain; border: 1px solid #d7dee8; margin: 10px 0 16px; }
+    .poster-block { page-break-inside: avoid; margin: 10px 0 18px; }
+    img { display: block; width: 6.2in; max-width: 100%; height: auto; border: 1px solid #d7dee8; margin: 0 0 16px; }
     strong { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
   </style>
 </head>
@@ -937,16 +941,31 @@ function documentPosterUrl(posterUrl) {
 }
 
 function reportRegistrationHtml(event) {
-  if (event.link) {
-    return `报名链接：<a href="${escapeAttribute(event.link)}">${escapeHtml(event.name)}</a>`;
+  const sourceUrl = event.sourceUrl || event.eventUrl || event.link || "";
+  const registrationUrl = event.registrationUrl || "";
+  const parts = [];
+
+  if (sourceUrl) {
+    parts.push(`活动来源链接：<a href="${escapeAttribute(sourceUrl)}">${escapeHtml(sourceUrl)}</a>`);
+  } else {
+    parts.push("活动来源链接：未填写");
   }
 
-  const sourceUrl = event.sourceUrl || event.eventUrl || "";
-  if (event.registrationType === "二维码报名") {
-    return `报名方式：请通过活动海报二维码报名${sourceUrl ? `，来源页面：<a href="${escapeAttribute(sourceUrl)}">${escapeHtml(sourceUrl)}</a>` : ""}`;
+  if (registrationUrl && registrationUrl !== sourceUrl) {
+    parts.push(`报名入口：<a href="${escapeAttribute(registrationUrl)}">${escapeHtml(registrationUrl)}</a>`);
+  } else if (event.registrationType) {
+    parts.push(`报名信息：${escapeHtml(event.registrationType)}`);
   }
 
-  return `报名方式：${escapeHtml(event.registrationType || "人工确认报名")}${sourceUrl ? `，来源页面：<a href="${escapeAttribute(sourceUrl)}">${escapeHtml(sourceUrl)}</a>` : ""}`;
+  return parts.join("<br>");
+}
+
+function cleanSummaryNote(value) {
+  return String(value || "")
+    .replace(/未找到直接报名链接|不要编造报名链接|不要伪造报名链接/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[；;，,。\s]+$/g, "")
+    .trim();
 }
 
 function buildScoreReason(event) {
