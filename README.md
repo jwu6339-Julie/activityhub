@@ -15,7 +15,7 @@ ActivityHub 是一个用于整理商业地产、地产科技、REITs、办公租
 - 已新增 Node.js 后端接口 `GET /api/verified-events`。
 - 已新增 Node.js 后端接口 `POST /api/discover-events`，当前以 append-only 安全模式返回固定库，避免随机抓取污染活动池。
 - 已新增 OpenAI API 提取和总结能力。
-- 已新增 Playwright 网页截图能力，截图保存到 `assets/generated-posters/`。
+- 已新增本地固定海报生成能力，SVG 海报保存到 `assets/generated-posters/`。
 
 ## 重要边界
 
@@ -109,7 +109,7 @@ curl -s http://127.0.0.1:3000/api/verified-events
 curl -s -X POST http://127.0.0.1:3000/api/discover-events
 ```
 
-截图文件会生成在：
+固定活动海报文件会生成在：
 
 ```text
 assets/generated-posters/
