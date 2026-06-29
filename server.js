@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ const MAX_INPUT_LENGTH = 18000;
 const MAX_BODY_SIZE = 1024 * 1024;
 const GENERATED_POSTER_DIR = path.join(__dirname, "assets", "generated-posters");
 const GENERATED_POSTER_PUBLIC_DIR = "assets/generated-posters";
+const MIN_DISCOVERY_DATE = "2026-05-01";
 
 const DISCOVERY_KEYWORDS = [
   "商业地产", "地产峰会", "地产论坛", "商业地产活动", "REITs", "商业不动产",
@@ -33,6 +34,10 @@ const VERIFIED_SOURCE_URLS = [
   "https://www.chpmexpo.com/",
   "https://pujiang.sse.com.cn/update/notice/bond/c/c_20260326_10813113.shtml"
 ];
+
+const NON_EVENT_PATTERN = /(观点|对话|专访|访谈|快讯|新闻|报道|评论|分析文章|白皮书|榜单|企业50|科技50|政策解读|研究报告)/i;
+const EVENT_TITLE_PATTERN = /(活动|大会|峰会|论坛|沙龙|展会|展览会|博览会|研讨会|培训|闭门会|推介会|交流会|会议|conference|summit|forum|expo|exhibition|seminar|webinar|registration)/i;
+const REGISTRATION_PATTERN = /(报名|立即报名|参会报名|观众登记|注册|报名入口|我要参会|预约参会|Register|Registration|Visitor Registration|Book Now|Apply Now)/i;
 
 loadEnv();
 
@@ -125,33 +130,69 @@ async function handleDiscoverEvents(response) {
 
     try {
       for (const candidate of candidates.slice(0, 8)) {
+        const result = createCandidateLog(candidate);
         try {
           const page = await fetchPageContent(candidate.url);
+          const pageTitle = candidate.title || page.title || "";
+          const candidateText = `${pageTitle} ${page.text}`;
+
+          if (isObviousNonEvent(pageTitle, candidate.url)) {
+            result.isRealEvent = "no";
+            result.kept = "filtered";
+            result.filteredReason = "标题或链接显示为新闻、访谈、观点、榜单或研究内容";
+            logCandidateResult(result);
+            continue;
+          }
+
           const registration = extractRegistrationLink(page.html, candidate.url);
           const registrationUrl = sanitizeRegistrationUrl(registration.url || inferRegistrationUrl(candidate.url, page.text));
+          result.registrationLinkFound = registrationUrl ? "yes" : "no";
+          if (!registrationUrl) {
+            result.kept = "filtered";
+            result.filteredReason = "未找到直接报名链接";
+            logCandidateResult(result);
+            continue;
+          }
+
           const slug = createSlug(candidate.title || page.title || candidate.url);
-          const screenshotPath = await captureEventScreenshot(candidate.url, slug, browser);
+          const posterPath = await extractPosterImage(page.html, candidate.url, slug)
+            || await captureEventScreenshot(registrationUrl || candidate.url, slug, browser);
+          result.screenshotSuccess = posterPath ? "yes" : "no";
           const summarized = await summarizeEventWithAI({
-            pageText: page.text,
+            pageText: candidateText,
             url: candidate.url,
             sourceName: candidate.sourceName || page.sourceName,
             registrationUrl,
-            screenshotPath,
+            screenshotPath: posterPath,
             candidateTitle: candidate.title
           });
 
-          discovered.push(normalizeDiscoveredEvent({
+          const normalized = normalizeDiscoveredEvent({
             ...summarized,
             eventUrl: candidate.url,
             registrationUrl,
-            posterUrl: screenshotPath,
+            posterUrl: posterPath,
             source: summarized.source || candidate.sourceName || page.sourceName,
             notes: mergePlainNotes(
               summarized.notes,
               registration.direct && registrationUrl ? "已识别直接报名链接" : "未找到直接报名链接"
             )
-          }));
+          });
+          const quality = evaluateDiscoveredEvent(normalized, candidateText);
+          result.eventDate = normalized.date || "unknown";
+          result.isAfterMinDate = quality.isAfterMinDate ? "yes" : "no";
+          result.isRealEvent = quality.isRealEvent ? "yes" : "no";
+          result.kept = quality.keep ? "kept" : "filtered";
+          result.filteredReason = quality.reason || "";
+          logCandidateResult(result);
+
+          if (quality.keep) {
+            discovered.push(normalized);
+          }
         } catch (error) {
+          result.kept = "failed";
+          result.filteredReason = error.publicMessage || error.message || "候选活动处理失败";
+          logCandidateResult(result);
           diagnostics.push({
             url: candidate.url,
             status: "failed",
@@ -330,7 +371,6 @@ function extractCandidateLinks(html, baseUrl, sourceName) {
 
 function extractRegistrationLink(html, baseUrl) {
   const $ = cheerio.load(html);
-  const registrationPattern = /(报名|立即报名|观众登记|注册|参会报名|报名入口|Visitor Registration|Register|Registration)/i;
   const blockedPattern = /(javascript:|mailto:|tel:|#)/i;
 
   const candidates = [];
@@ -338,10 +378,10 @@ function extractRegistrationLink(html, baseUrl) {
     const text = cleanText($(element).text() || $(element).attr("aria-label") || $(element).attr("title") || "");
     const href = $(element).attr("href") || extractUrlFromOnclick($(element).attr("onclick") || "");
     if (!href || blockedPattern.test(href)) return;
-    if (!registrationPattern.test(text) && !registrationPattern.test(href)) return;
+    if (!REGISTRATION_PATTERN.test(text) && !REGISTRATION_PATTERN.test(href)) return;
 
     const url = toAbsoluteUrl(href, baseUrl);
-    if (url && isHttpUrl(url) && !isLikelyHomepage(url) && !isBlockedRegistrationUrl(url)) {
+    if (url && isHttpUrl(url) && !isLikelyHomepage(url) && !isBlockedRegistrationUrl(url) && !isFileDownload(url)) {
       candidates.push(url);
     }
   });
@@ -350,9 +390,8 @@ function extractRegistrationLink(html, baseUrl) {
 }
 
 function inferRegistrationUrl(pageUrl, pageText) {
-  const registrationPattern = /(报名|立即报名|观众登记|注册|参会报名|报名入口|Visitor Registration|Register|Registration)/i;
   const urlLooksLikeRegistration = /(visitor|register|registration|signup|apply|报名|登记)/i.test(pageUrl);
-  if (!isLikelyHomepage(pageUrl) && urlLooksLikeRegistration && registrationPattern.test(pageText)) {
+  if (!isLikelyHomepage(pageUrl) && urlLooksLikeRegistration && REGISTRATION_PATTERN.test(pageText)) {
     return pageUrl;
   }
   return "";
@@ -376,6 +415,55 @@ async function captureEventScreenshot(url, slug, browser) {
     return "";
   } finally {
     await page.close();
+  }
+}
+
+async function extractPosterImage(html, baseUrl, slug) {
+  const $ = cheerio.load(html);
+  const images = [];
+
+  $("img[src]").each((_, element) => {
+    const src = $(element).attr("src");
+    const alt = cleanText($(element).attr("alt") || "");
+    const title = cleanText($(element).attr("title") || "");
+    const className = cleanText($(element).attr("class") || "");
+    const width = Number($(element).attr("width") || 0);
+    const height = Number($(element).attr("height") || 0);
+    const url = toAbsoluteUrl(src, baseUrl);
+    if (!url || !isHttpUrl(url) || isBlockedRegistrationUrl(url)) return;
+
+    const descriptor = `${alt} ${title} ${className} ${url}`;
+    let score = 0;
+    if (/(poster|banner|kv|hero|海报|主视觉|活动|峰会|论坛|展会|大会)/i.test(descriptor)) score += 8;
+    if (width >= 500 || height >= 260) score += 4;
+    if (/\.(png|jpg|jpeg|webp)(\?|$)/i.test(url)) score += 2;
+    if (score > 0) images.push({ url, score });
+  });
+
+  const best = images.sort((a, b) => b.score - a.score)[0];
+  if (!best) return "";
+  return saveRemoteImage(best.url, `${slug}-poster`);
+}
+
+async function saveRemoteImage(url, slug) {
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "ActivityHub/0.2 poster fetch" }
+    });
+    if (!response.ok) return "";
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) return "";
+
+    const ext = contentType.includes("png") ? "png"
+      : contentType.includes("webp") ? "webp"
+        : "jpg";
+    const fileName = `${slug}-${Date.now()}.${ext}`;
+    const filePath = path.join(GENERATED_POSTER_DIR, fileName);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    await writeFile(filePath, bytes);
+    return `${GENERATED_POSTER_PUBLIC_DIR}/${fileName}`;
+  } catch {
+    return "";
   }
 }
 
@@ -405,11 +493,14 @@ async function summarizeEventWithAI({ pageText, url, sourceName, registrationUrl
               text: [
                 "你是 ActivityHub 的真实活动发现助手。",
                 "请判断页面是否包含商业地产、地产科技、REITs、办公租赁、智慧楼宇、设施管理、资产管理、存量资产或商业空间相关活动。",
+                "只提取真实活动、会议、展会、峰会、论坛、沙龙、研讨会或培训。",
+                "不要把新闻报道、访谈、观点文章、榜单、白皮书、政策解读或研究报告提取为活动。",
                 "只输出 JSON Schema 要求的字段。不要编造报名链接、海报或地点。",
                 "registrationUrl 只能使用用户提供的候选报名链接；没有则为空字符串。",
                 "posterUrl 只能使用用户提供的本地截图路径；没有则为空字符串。",
                 "date 优先返回 YYYY-MM-DD；如果只知道日期范围，返回开始日期。",
-                "如果页面不是明确活动，也尽量保守提取，并在 notes 说明信息完整度。"
+                "如果无法识别明确活动日期，请 date 返回空字符串，并在 notes 说明。",
+                "aiSummary 写 100-150 字中文备注，说明活动内容、主题、适合关注原因。"
               ].join("\n")
             }
           ]
@@ -516,6 +607,48 @@ function normalizeDiscoveredEvent(event) {
   };
 }
 
+function evaluateDiscoveredEvent(event, pageText = "") {
+  if (!event.registrationUrl) {
+    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "未找到直接报名链接" };
+  }
+
+  const date = parseEventDate(event.date);
+  if (!date) {
+    return { keep: false, isAfterMinDate: false, isRealEvent: isRealEvent(event, pageText), reason: "无法识别活动日期" };
+  }
+
+  const isAfterMinDate = date >= new Date(`${MIN_DISCOVERY_DATE}T00:00:00`);
+  if (!isAfterMinDate) {
+    return { keep: false, isAfterMinDate, isRealEvent: isRealEvent(event, pageText), reason: `活动日期早于 ${MIN_DISCOVERY_DATE}` };
+  }
+
+  const realEvent = isRealEvent(event, pageText);
+  if (!realEvent) {
+    return { keep: false, isAfterMinDate, isRealEvent: false, reason: "页面属于新闻、访谈、观点、榜单或标题不像活动" };
+  }
+
+  return { keep: true, isAfterMinDate, isRealEvent: true, reason: "" };
+}
+
+function parseEventDate(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const date = new Date(`${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isRealEvent(event, pageText = "") {
+  const title = String(event.title || "");
+  const combined = `${title} ${event.eventType || ""} ${event.themes?.join(" ") || ""}`;
+  if (isObviousNonEvent(combined, event.eventUrl || "")) return false;
+  if (EVENT_TITLE_PATTERN.test(combined)) return true;
+
+  const firstText = String(pageText || "").slice(0, 1600);
+  return EVENT_TITLE_PATTERN.test(firstText) && !NON_EVENT_PATTERN.test(title);
+}
+
 function dedupeEvents(items) {
   const byKey = new Map();
 
@@ -557,6 +690,8 @@ function scoreCandidate(title = "", context = "", url = "") {
   const text = `${title} ${context} ${url}`.toLowerCase();
   let score = 0;
 
+  if (isObviousNonEvent(title, url)) return -10;
+
   DISCOVERY_KEYWORDS.forEach((keyword) => {
     if (text.includes(keyword.toLowerCase())) score += 10;
   });
@@ -565,6 +700,39 @@ function scoreCandidate(title = "", context = "", url = "") {
   }
   if (isLikelyHomepage(url)) score -= 4;
   return score;
+}
+
+function isObviousNonEvent(title = "", url = "") {
+  const text = `${title} ${url}`.toLowerCase();
+  if (NON_EVENT_PATTERN.test(text)) return true;
+  if (/\/article\/|\/news\/|\/press|\/insight|\/report|\/pdf\//i.test(text) && !EVENT_TITLE_PATTERN.test(title)) return true;
+  return false;
+}
+
+function createCandidateLog(candidate) {
+  return {
+    candidateTitle: candidate.title || candidate.url,
+    eventDate: "unknown",
+    isAfterMinDate: "unknown",
+    isRealEvent: "unknown",
+    registrationLinkFound: "unknown",
+    screenshotSuccess: "unknown",
+    kept: "pending",
+    filteredReason: ""
+  };
+}
+
+function logCandidateResult(result) {
+  console.log("[discover-events]", [
+    `candidate title=${result.candidateTitle}`,
+    `event date=${result.eventDate}`,
+    `is after ${MIN_DISCOVERY_DATE}=${result.isAfterMinDate}`,
+    `is real event=${result.isRealEvent}`,
+    `registration link found=${result.registrationLinkFound}`,
+    `screenshot success=${result.screenshotSuccess}`,
+    `kept or filtered=${result.kept}`,
+    result.filteredReason ? `filtered reason=${result.filteredReason}` : ""
+  ].filter(Boolean).join(" | "));
 }
 
 function createSlug(value) {
@@ -611,7 +779,7 @@ function isLikelyHomepage(url) {
 
 function sanitizeRegistrationUrl(url) {
   const value = String(url || "").trim();
-  if (!value || isLikelyHomepage(value) || isBlockedRegistrationUrl(value)) return "";
+  if (!value || isLikelyHomepage(value) || isBlockedRegistrationUrl(value) || isFileDownload(value)) return "";
   return value;
 }
 
@@ -623,7 +791,11 @@ function isBlockedRegistrationUrl(url) {
 function isBlockedCandidateUrl(url) {
   const text = String(url || "").toLowerCase();
   return isBlockedRegistrationUrl(text)
-    || /\.(pdf|doc|docx|xls|xlsx|zip)(\?|$)/i.test(text);
+    || isFileDownload(text);
+}
+
+function isFileDownload(url) {
+  return /\.(pdf|doc|docx|xls|xlsx|zip|rar)(\?|$)/i.test(String(url || ""));
 }
 
 function mergePlainNotes(...values) {
