@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="640" viewBox="0 0 1080 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#102f46"/>
+      <stop offset="1" stop-color="#1d6f83"/>
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="640" fill="url(#bg)"/>
+  <rect x="58" y="60" width="964" height="520" rx="34" fill="#ffffff" opacity="0.08" stroke="#d8e8ef" stroke-opacity="0.24"/>
+  <circle cx="875" cy="150" r="128" fill="#c99835" opacity="0.20"/>
+  <text x="82" y="136" fill="#d6a545" font-size="32" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700">商业地产 / 地产投资</text>
+  <text x="82" y="250" fill="#ffffff" font-size="50" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">WISE 23RD SHANGHAI</text>
+  <text x="82" y="315" fill="#ffffff" font-size="50" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">INTERNATIONAL PROPERTY SHOW</text>
+  <text x="82" y="388" fill="#e8f4f7" font-size="46" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">2026</text>
+  <text x="82" y="498" fill="#e8f4f7" font-size="30" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700">2026.09.25-09.27 · 上海世博展览馆</text>
+  <text x="82" y="546" fill="#d8e8ef" font-size="24" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">投资 · 资产配置 · 商业地产服务</text>
+</svg>
