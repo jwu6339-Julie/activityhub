@@ -2,7 +2,7 @@
 
 ActivityHub 是一个用于整理商业地产、地产科技、REITs、办公租赁、智慧楼宇、设施管理等行业活动的轻量网页工具。
 
-当前版本是在本地 demo 基础上升级的 **固定 verified 活动库 + 增量更新版**：页面打开后会先读取 `data/verified-events.json`，直接展示已经确认的真实活动；点击“刷新真实活动”只会增量补充或更新合规活动，不会清空或覆盖已确认活动。
+当前版本是在本地 demo 基础上升级的 **固定 verified 活动库 + append-only 刷新版**：页面打开后会先读取 `data/verified-events.json`，直接展示已经确认的真实活动；点击“刷新真实活动”不会清空或覆盖已确认活动。
 
 ## 当前状态
 
@@ -13,7 +13,7 @@ ActivityHub 是一个用于整理商业地产、地产科技、REITs、办公租
 - 已实现后台添加、编辑、删除活动。
 - 已新增 Node.js 后端接口 `POST /api/extract-event`。
 - 已新增 Node.js 后端接口 `GET /api/verified-events`。
-- 已新增 Node.js 后端接口 `POST /api/discover-events`，用于增量更新 verified 活动库。
+- 已新增 Node.js 后端接口 `POST /api/discover-events`，当前以 append-only 安全模式返回固定库，避免随机抓取污染活动池。
 - 已新增 OpenAI API 提取和总结能力。
 - 已新增 Playwright 网页截图能力，截图保存到 `assets/generated-posters/`。
 
@@ -22,7 +22,7 @@ ActivityHub 是一个用于整理商业地产、地产科技、REITs、办公租
 - 不做自动公众号抓取。
 - 不做全网实时爬虫。
 - 首页默认读取固定 verified 活动库，不依赖随机刷新。
-- “刷新真实活动”只做增量发现、去重、补充和缺失字段更新。
+- “刷新真实活动”当前只保留并返回固定 verified 活动库；实时随机发现已关闭。
 - 已确认并锁定的 verified 活动不会被后续刷新删除或覆盖。
 - 不做登录、数据库、多人协作或权限系统。
 - 不自动发送给销售。
@@ -96,8 +96,8 @@ http://127.0.0.1:3000
 1. 启动本地服务并打开 `http://127.0.0.1:3000`。
 2. 首页会自动读取 `data/verified-events.json`，不用点击刷新也会显示固定 verified 活动。
 3. 在首页搜索区右侧点击“刷新真实活动”。
-4. 后端会在固定库基础上增量发现公开活动页，过滤无报名链接、早于 2026-05-01、报道/访谈/榜单等不合格内容。
-5. 符合条件的新活动会合并写回 `data/verified-events.json`；已确认活动会继续保留。
+4. 后端会返回固定库，并给出 `totalVerified`、`addedCount`、`updatedCount`、`keptExistingCount`。
+5. 当前实时随机发现已关闭，避免无关活动、新闻报道或弱相关展会进入首页。
 
 也可以直接测试接口：
 
@@ -215,13 +215,12 @@ curl -s http://127.0.0.1:3000/api/verified-events
 
 ### `POST /api/discover-events`
 
-增量活动发现接口会搜索公开活动页和官方活动站点，并只把通过质量过滤的活动合并进 fixed verified 活动库：
+刷新接口当前为 append-only 安全模式：返回 fixed verified 活动库，不删除、不覆盖、不减少已有活动。
 
-- 活动日期不早于 `2026-05-01`
-- 必须是会议、展会、论坛、研讨会等真实活动
-- 必须有明确可点击的报名 / 注册链接
-- 必须有标题、日期、城市、地点和海报
-- 新闻、报道、访谈、榜单、观点文章、会后报道会被过滤
+- 返回活动日期不早于 `2026-05-01`
+- 返回活动来自 `data/verified-events.json`
+- 已确认并锁定的五六月活动会固定保留
+- 实时随机发现默认关闭，避免新闻、报道、访谈、榜单、观点文章进入首页
 
 请求：
 
