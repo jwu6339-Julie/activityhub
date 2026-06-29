@@ -180,6 +180,14 @@ V2 仍然使用 localStorage 保存前端活动数据，不使用数据库。
 
 ### `POST /api/discover-events`
 
+真实活动发现接口会搜索公开活动页和官方活动站点，并只返回通过质量过滤的活动：
+
+- 活动日期不早于 `2026-05-01`
+- 必须是会议、展会、论坛、研讨会等真实活动
+- 必须有明确可点击的报名 / 注册链接
+- 必须有标题、日期、城市、地点和海报
+- 新闻、报道、访谈、榜单、观点文章、会后报道会被过滤
+
 请求：
 
 ```bash
@@ -201,19 +209,18 @@ curl -s -X POST http://127.0.0.1:3000/api/discover-events
       "organizer": "主办方",
       "source": "来源网站",
       "eventUrl": "活动详情页",
-      "registrationUrl": "",
-      "registrationType": "二维码报名",
+      "registrationUrl": "直接报名或注册链接",
       "posterUrl": "assets/generated-posters/event.png",
       "themes": ["商业地产"],
-      "aiSummary": "100-150字中文活动简介",
-      "notes": "报名方式以海报二维码为主"
+      "aiSummary": "专业活动备注",
+      "notes": "补充说明"
     }
   ],
   "sources": [
     {
-      "url": "https://www.sohu.com/a/1028863307_121948396",
+      "url": "活动来源页",
       "status": "kept",
-      "title": "2026房地产不良资产运营大会"
+      "title": "活动名称"
     }
   ]
 }
