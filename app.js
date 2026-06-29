@@ -302,7 +302,12 @@ function loadEvents() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
       return [];
     }
-    return parsed.map(normalizeEvent);
+    const normalized = parsed.map(normalizeEvent);
+    const filtered = normalized.filter(isAllowedStoredEvent);
+    if (filtered.length !== normalized.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    }
+    return filtered;
   } catch {
     return [];
   }
@@ -324,6 +329,16 @@ function normalizeEvent(event) {
     favorite: Boolean(event.favorite),
     selectedForReport: Boolean(event.selectedForReport)
   };
+}
+
+function isAllowedStoredEvent(event) {
+  if (!event.verifiedSource) return true;
+  const titleText = `${event.name || ""} ${event.type || ""}`;
+  const nonEventPattern = /(观点|对话|专访|访谈|快讯|新闻|报道|评论|分析文章|白皮书|榜单|企业50|科技50|政策解读|研究报告)/i;
+  return Boolean(event.link)
+    && Boolean(normalizeExtractedDate(event.date))
+    && normalizeExtractedDate(event.date) >= "2026-05-01"
+    && !nonEventPattern.test(titleText);
 }
 
 function createId() {
@@ -460,7 +475,7 @@ function openEventDetail(id) {
         <div class="detail-row"><strong>活动类型：</strong><span>${escapeHtml(event.type || "未填写")}</span></div>
         <div class="detail-row"><strong>主办方：</strong><span>${escapeHtml(event.organizer || "未填写")}</span></div>
         <div class="detail-row"><strong>报名链接：</strong><span>${event.link ? `<a href="${escapeAttribute(event.link)}" target="_blank" rel="noreferrer">${escapeHtml(event.name)}</a>` : "暂无报名链接"}</span></div>
-        <div class="detail-row detail-summary"><strong>AI 摘要 / 活动简介：</strong><span>${escapeHtml(event.summaryNote || event.aiSummary || event.description || "暂无活动简介。")}</span></div>
+        <div class="detail-row detail-summary"><strong>备注：</strong><span>${escapeHtml(event.summaryNote || event.aiSummary || event.description || "暂无备注。")}</span></div>
       </div>
     </div>
   `;
@@ -535,15 +550,16 @@ async function discoverRealEvents() {
 
     const discovered = Array.isArray(data.events) ? data.events.map(mapDiscoveredEvent).filter(Boolean) : [];
     if (!discovered.length) {
-      setDiscoverStatus("暂未发现新的公开活动，请稍后重试或手动添加。", "error");
-      showToast("暂未发现新的公开活动");
+      const message = "未找到符合条件的活动。原因可能是：没有直接报名链接、活动日期早于 2026 年 5 月、或页面属于新闻报道而非活动。";
+      setDiscoverStatus(message, "error");
+      showToast("未找到符合条件的活动");
       return;
     }
 
     const result = mergeDiscoveredEvents(discovered);
     saveEvents();
     render();
-    setDiscoverStatus(`发现 ${discovered.length} 条真实活动，新增 ${result.added} 条，更新 ${result.updated} 条。`, "success");
+    setDiscoverStatus(`发现 ${discovered.length} 条符合条件的真实活动，已过滤无报名链接/过期/资讯类内容。新增 ${result.added} 条，更新 ${result.updated} 条。`, "success");
     showToast("真实活动已刷新");
   } catch (error) {
     setDiscoverStatus(error.message || "真实活动发现失败，请稍后重试", "error");
@@ -1038,14 +1054,17 @@ function exportWordReport() {
     return;
   }
 
-  const topicBlocks = favorites.map((event, index) => `
+  const topicBlocks = favorites.map((event, index) => {
+    const posterUrl = documentPosterUrl(event.posterUrl);
+    return `
     <h2>TOPIC ${index + 1}：${escapeHtml(event.name)}</h2>
-    ${event.posterUrl ? `<p><img src="${escapeAttribute(event.posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报"></p>` : ""}
+    ${posterUrl ? `<p><img src="${escapeAttribute(posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报"></p>` : "<p>[活动海报] 未填写</p>"}
     <p><strong>地点：</strong>${escapeHtml(event.city)} ${escapeHtml(event.location)}</p>
     <p><strong>时间：</strong>${formatDate(event.date)}</p>
     <p><strong>报名链接：</strong>${event.link ? `<a href="${escapeAttribute(event.link)}">${escapeHtml(event.name)}</a>` : "暂无报名链接"}</p>
     <p><strong>备注：</strong>${escapeHtml(event.summaryNote || event.description || "暂无备注。")}</p>
-  `).join("");
+  `;
+  }).join("");
 
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1055,7 +1074,7 @@ function exportWordReport() {
   <style>
     body { font-family: Georgia, "Times New Roman", "Songti SC", serif; max-width: 780px; margin: 40px auto; line-height: 1.65; color: #111827; }
     h2 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; margin-top: 32px; font-size: 20px; }
-    img { max-width: 420px; max-height: 520px; object-fit: contain; border: 1px solid #d7dee8; }
+    img { display: block; width: 420px; max-width: 100%; max-height: 520px; object-fit: contain; border: 1px solid #d7dee8; margin: 10px 0 16px; }
     strong { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
   </style>
 </head>
@@ -1069,6 +1088,15 @@ function exportWordReport() {
 </html>`;
 
   downloadFile(`activityhub-favorites-${todayString()}.doc`, html, "application/msword;charset=utf-8");
+}
+
+function documentPosterUrl(posterUrl) {
+  if (!posterUrl) return "";
+  try {
+    return new URL(posterUrl, window.location.href).href;
+  } catch {
+    return posterUrl;
+  }
 }
 
 function buildScoreReason(event) {
