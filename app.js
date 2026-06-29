@@ -20,215 +20,7 @@ const salesKeywords = [
   "运营方", "商办", "金融机构", "REITs", "设施管理", "租赁", "办公"
 ];
 
-const sampleEvents = [
-  {
-    id: createId(),
-    name: "2026中国商业地产投资专业展览会暨第八届商业地产产品品牌价值论坛",
-    type: "展会",
-    city: "北京",
-    location: "北京歌华开元大酒店",
-    date: "2026-06-26",
-    organizer: "CORC 中国商业地产投资专业展览会",
-    source: "展会官网",
-    link: "http://www.corc.com.cn/",
-    posterUrl: "assets/corc-event-card.jpg",
-    tags: "商业地产, 商办运营, 投资展会",
-    salesType: "开发商、业主方、商业地产投资机构、品牌方",
-    summaryNote: "这是一个围绕商业地产投资、品牌价值和项目资源对接的展会型活动。它与商业地产招商、资产运营和品牌合作高度相关，适合销售关注开发商、业主方和商业运营客户。",
-    description: "围绕商业地产投资、品牌价值、项目招商和行业资源对接展开，适合观察商业地产行业新项目和潜在客户机会。",
-    recommendationLevel: "高",
-    recommendReason: "展会主题与商业地产投资和品牌价值高度相关，适合销售触达开发商、业主方、商业运营和品牌客户。",
-    status: "待评估",
-    selectedForReport: true,
-    favorite: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: createId(),
-    name: "2026零行资产运营大会",
-    type: "大会",
-    city: "北京",
-    location: "北京厦航嘉年华酒店",
-    date: "2026-06-12",
-    organizer: "零行资产运营大会组委会",
-    source: "行业活动信息入口",
-    link: "https://www.guandian.cn/",
-    posterUrl: "",
-    tags: "资产管理, 存量资产, 商业地产",
-    salesType: "资管方、金融机构、地产企业、专业服务机构",
-    summaryNote: "该活动关注存量资产运营和房地产资产盘活，是典型的资管与商业地产交叉场景。对销售来说，活动可能聚集资管方、金融机构和地产企业，是寻找资产运营需求的线索入口。",
-    description: "聚焦存量资产运营、资产盘活、地产企业转型和专业服务机构协同。",
-    recommendationLevel: "高",
-    recommendReason: "议题与资管和存量资产运营直接相关，适合拓展资管方、金融机构和地产企业客户。",
-    status: "待评估",
-    selectedForReport: true,
-    favorite: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: createId(),
-    name: "赢商机·创未来——2026年广州安居商业存量资产盘活专场推介会",
-    type: "推介会",
-    city: "广州",
-    location: "广州安居集团项目现场",
-    date: "2026-06-12",
-    organizer: "广州安居集团",
-    source: "活动信息页",
-    link: "https://www.winshang.com/",
-    posterUrl: "assets/corc-platform-home.jpg",
-    tags: "存量资产, 商业地产, 资产盘活",
-    salesType: "业主方、国企平台、资管方、商业运营方",
-    summaryNote: "这是一场围绕商业存量资产盘活的项目推介活动。它和商业地产资管、国资平台资产运营有关，适合销售观察业主方、运营方和潜在合作项目。",
-    description: "面向商业存量资产盘活和项目资源推介，适合寻找国资平台、业主方和运营合作机会。",
-    recommendationLevel: "中",
-    recommendReason: "活动聚焦存量资产盘活，适合销售触达国企平台、业主方和商业运营相关客户。",
-    status: "待评估",
-    selectedForReport: false,
-    favorite: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: createId(),
-    name: "全球智能家居展暨深圳国际智能家居展",
-    type: "展会",
-    city: "深圳",
-    location: "深圳会展中心（福田）",
-    date: "2026-06-24",
-    organizer: "全球智能家居展组委会",
-    source: "展会官网",
-    link: "https://www.smarthomeexpo.com.cn/",
-    posterUrl: "assets/favorites-reference.jpg",
-    tags: "智慧楼宇, 智能家居, 地产科技",
-    salesType: "智慧楼宇服务商、地产科技企业、物业及设施管理方",
-    summaryNote: "该展会聚焦智能家居、智慧楼宇和空间智能化产品。它与地产科技、楼宇数字化和设施管理相关，适合销售寻找楼宇科技、物业运营和空间服务客户。",
-    description: "展示智能家居、智能建筑和智慧空间相关产品，适合观察楼宇科技和空间智能化供应链。",
-    recommendationLevel: "中",
-    recommendReason: "主题与智慧楼宇和地产科技相关，可作为楼宇数字化客户拓展线索。",
-    status: "待评估",
-    selectedForReport: false,
-    favorite: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: createId(),
-    name: "RICS REITs赋能存量资产价值跃升研讨会",
-    type: "研讨会",
-    city: "北京",
-    location: "北京正大中心",
-    date: "2026-06-17",
-    organizer: "RICS 皇家特许测量师学会",
-    source: "RICS 官方网站",
-    link: "https://www.rics.org.cn/",
-    posterUrl: "",
-    tags: "REITs, 存量资产, 资产管理",
-    salesType: "资管方、券商、基金、商业不动产业主",
-    summaryNote: "该研讨会围绕 REITs、估值体系和存量资产价值提升展开。它与商业不动产金融化和资产管理强相关，适合销售关注资管方、券商基金和业主方。",
-    description: "围绕 REITs 政策、估值体系和存量资产价值提升展开交流。",
-    recommendationLevel: "高",
-    recommendReason: "RICS 是专业机构，议题聚焦 REITs 和存量资产，适合触达金融机构与业主方。",
-    status: "待评估",
-    selectedForReport: false,
-    favorite: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: createId(),
-    name: "IFMA 设施管理与办公空间运营交流会",
-    type: "沙龙",
-    city: "上海",
-    location: "上海浦东新区",
-    date: "2026-07-09",
-    organizer: "IFMA",
-    source: "IFMA 官方网站",
-    link: "https://ifma.org/",
-    posterUrl: "",
-    tags: "设施管理, 办公运营, 企业不动产",
-    salesType: "企业行政、设施管理方、办公空间运营方",
-    summaryNote: "该交流会关注设施管理、办公空间运营和企业不动产管理。它与办公运营、企业客户服务和设施管理采购有关，适合销售触达企业行政和 FM 负责人。",
-    description: "交流设施管理、办公空间运营、企业不动产管理和服务商协作。",
-    recommendationLevel: "高",
-    recommendReason: "参会人群与企业客户和设施管理方高度相关，适合销售寻找办公运营机会。",
-    status: "待评估",
-    selectedForReport: false,
-    favorite: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: createId(),
-    name: "APREA 中国不动产投资与 REITs 圆桌",
-    type: "闭门会",
-    city: "上海",
-    location: "上海陆家嘴",
-    date: "2026-08-20",
-    organizer: "APREA",
-    source: "APREA 官方网站",
-    link: "https://www.aprea.asia/",
-    posterUrl: "",
-    tags: "REITs, 不动产投资, 产业金融",
-    salesType: "投资机构、资管方、REITs 相关机构",
-    summaryNote: "该圆桌关注亚太不动产投资和 REITs 市场趋势。它和产业金融、资产配置和不动产投资相关，适合销售关注投资机构和 REITs 生态客户。",
-    description: "关注亚太不动产投资、REITs 市场趋势和资产配置策略。",
-    recommendationLevel: "高",
-    recommendReason: "适合触达投资机构、资管方和 REITs 生态客户。",
-    status: "待评估",
-    selectedForReport: false,
-    favorite: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: createId(),
-    name: "CoreNet 企业不动产与办公战略论坛",
-    type: "论坛",
-    city: "上海",
-    location: "上海市中心商务区",
-    date: "2026-09-03",
-    organizer: "CoreNet Global",
-    source: "CoreNet 官方网站",
-    link: "https://www.corenetglobal.org/",
-    posterUrl: "",
-    tags: "企业不动产, CRE, 办公租赁",
-    salesType: "企业客户、CRE 部门、办公租赁决策人",
-    summaryNote: "该论坛聚焦企业不动产、办公策略和租赁决策。它与办公租赁、企业客户选址和 CRE 部门需求相关，适合销售寻找企业端决策人。",
-    description: "围绕企业不动产、办公策略、职场体验和租赁决策展开讨论。",
-    recommendationLevel: "中",
-    recommendReason: "适合销售触达企业不动产部门和办公租赁相关决策人。",
-    status: "待评估",
-    selectedForReport: false,
-    favorite: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: createId(),
-    name: "BOMA 楼宇运营与资产价值提升论坛",
-    type: "论坛",
-    city: "深圳",
-    location: "深圳福田 CBD",
-    date: "2026-10-15",
-    organizer: "BOMA China",
-    source: "BOMA 官方网站",
-    link: "https://www.boma.org/",
-    posterUrl: "",
-    tags: "楼宇运营, 资产管理, 设施管理",
-    salesType: "楼宇业主、物业管理方、设施管理方",
-    summaryNote: "该论坛关注楼宇运营、资产价值提升和设施管理标准。它与智慧楼宇、物业管理和资产运营相关，适合销售触达楼宇业主、物业和设施管理客户。",
-    description: "关注楼宇运营效率、资产价值提升和设施管理服务标准。",
-    recommendationLevel: "中",
-    recommendReason: "楼宇运营和设施管理主题清晰，适合触达业主和物业管理客户。",
-    status: "待评估",
-    selectedForReport: false,
-    favorite: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }
-];
+const sampleEvents = [];
 
 let events = loadEvents();
 let activeView = "home";
@@ -324,7 +116,9 @@ function normalizeEvent(event) {
     salesType: event.salesType || "",
     summaryNote: event.summaryNote || event.aiSummary || "",
     eventUrl: event.eventUrl || "",
+    sourceUrl: event.sourceUrl || event.eventUrl || "",
     registrationUrl: event.registrationUrl || event.link || "",
+    registrationType: event.registrationType || "",
     verifiedSource: Boolean(event.verifiedSource),
     favorite: Boolean(event.favorite),
     selectedForReport: Boolean(event.selectedForReport)
@@ -337,7 +131,7 @@ function isAllowedStoredEvent(event) {
   const nonEventPattern = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
   const eventTitlePattern = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
   const date = normalizeExtractedDate(event.date);
-  return Boolean(event.link)
+  return (Boolean(event.link) || Boolean(event.registrationType))
     && Boolean(event.posterUrl)
     && Boolean(date)
     && date >= "2026-05-01"
@@ -465,8 +259,13 @@ function openEventDetail(id) {
 
   activeDetailId = id;
   const tags = splitTags(event.tags);
+  const actionUrl = event.link || event.sourceUrl || event.eventUrl || "#";
+  const registrationMarkup = event.link
+    ? `<div class="detail-row"><strong>报名链接：</strong><span><a href="${escapeAttribute(event.link)}" target="_blank" rel="noreferrer">${escapeHtml(event.name)}</a></span></div>`
+    : `<div class="detail-row"><strong>报名方式：</strong><span>${escapeHtml(event.registrationType || "人工确认报名")}${actionUrl !== "#" ? `，<a href="${escapeAttribute(actionUrl)}" target="_blank" rel="noreferrer">查看来源页面</a>` : ""}</span></div>`;
   elements.detailTitle.textContent = event.name;
-  elements.detailRegisterLink.href = event.link || "#";
+  elements.detailRegisterLink.href = actionUrl;
+  elements.detailRegisterLink.textContent = event.link ? "立即报名" : "查看来源页面";
   elements.detailFavoriteButton.textContent = event.favorite ? "取消收藏" : "收藏";
 
   elements.detailContent.innerHTML = `
@@ -478,7 +277,7 @@ function openEventDetail(id) {
         <div class="detail-row"><strong>主题：</strong><span>${tags.map((tag) => `<em>${escapeHtml(tag)}</em>`).join("")}</span></div>
         <div class="detail-row"><strong>活动类型：</strong><span>${escapeHtml(event.type || "未填写")}</span></div>
         <div class="detail-row"><strong>主办方：</strong><span>${escapeHtml(event.organizer || "未填写")}</span></div>
-        <div class="detail-row"><strong>报名链接：</strong><span>${event.link ? `<a href="${escapeAttribute(event.link)}" target="_blank" rel="noreferrer">${escapeHtml(event.name)}</a>` : "暂无报名链接"}</span></div>
+        ${registrationMarkup}
         <div class="detail-row detail-summary"><strong>备注：</strong><span>${escapeHtml(event.summaryNote || event.aiSummary || event.description || "暂无备注。")}</span></div>
       </div>
     </div>
@@ -491,7 +290,7 @@ function openEventDetail(id) {
   if (typeof elements.eventDetailDialog.showModal === "function") {
     elements.eventDetailDialog.showModal();
   } else {
-    window.alert(`${event.name}\n\n时间：${formatDate(event.date)}\n地点：${event.city} ${event.location}\n报名：${event.link}`);
+    window.alert(`${event.name}\n\n时间：${formatDate(event.date)}\n地点：${event.city} ${event.location}\n报名方式：${event.link || event.registrationType || "人工确认报名"}`);
   }
 }
 
@@ -578,7 +377,8 @@ function mapDiscoveredEvent(event) {
 
   const now = new Date().toISOString();
   const registrationUrl = String(event.registrationUrl || "").trim();
-  const eventUrl = String(event.eventUrl || "").trim();
+  const eventUrl = String(event.eventUrl || event.sourceUrl || "").trim();
+  const sourceUrl = String(event.sourceUrl || event.eventUrl || "").trim();
 
   return {
     id: createId(),
@@ -591,6 +391,8 @@ function mapDiscoveredEvent(event) {
     source: event.source || "Verified source",
     link: registrationUrl,
     registrationUrl,
+    registrationType: event.registrationType || "",
+    sourceUrl,
     eventUrl,
     posterUrl: event.posterUrl || "",
     tags: Array.isArray(event.themes) ? event.themes.join(", ") : "",
@@ -1060,12 +862,13 @@ function exportWordReport() {
 
   const topicBlocks = favorites.map((event, index) => {
     const posterUrl = documentPosterUrl(event.posterUrl);
+    const registrationHtml = reportRegistrationHtml(event);
     return `
     <h2>TOPIC ${index + 1}：${escapeHtml(event.name)}</h2>
     ${posterUrl ? `<p><img src="${escapeAttribute(posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报"></p>` : "<p>[活动海报] 未填写</p>"}
     <p><strong>地点：</strong>${escapeHtml(event.city)} ${escapeHtml(event.location)}</p>
     <p><strong>时间：</strong>${formatDate(event.date)}</p>
-    <p><strong>报名链接：</strong>${event.link ? `<a href="${escapeAttribute(event.link)}">${escapeHtml(event.name)}</a>` : "暂无报名链接"}</p>
+    <p><strong>报名方式 / 报名链接：</strong>${registrationHtml}</p>
     <p><strong>备注：</strong>${escapeHtml(event.summaryNote || event.description || "暂无备注。")}</p>
   `;
   }).join("");
@@ -1101,6 +904,19 @@ function documentPosterUrl(posterUrl) {
   } catch {
     return posterUrl;
   }
+}
+
+function reportRegistrationHtml(event) {
+  if (event.link) {
+    return `报名链接：<a href="${escapeAttribute(event.link)}">${escapeHtml(event.name)}</a>`;
+  }
+
+  const sourceUrl = event.sourceUrl || event.eventUrl || "";
+  if (event.registrationType === "二维码报名") {
+    return `报名方式：请通过活动海报二维码报名${sourceUrl ? `，来源页面：<a href="${escapeAttribute(sourceUrl)}">${escapeHtml(sourceUrl)}</a>` : ""}`;
+  }
+
+  return `报名方式：${escapeHtml(event.registrationType || "人工确认报名")}${sourceUrl ? `，来源页面：<a href="${escapeAttribute(sourceUrl)}">${escapeHtml(sourceUrl)}</a>` : ""}`;
 }
 
 function buildScoreReason(event) {
