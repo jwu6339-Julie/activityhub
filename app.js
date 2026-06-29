@@ -358,8 +358,7 @@ async function extractEventWithAi() {
   setAiStatus("AI 正在提取活动信息...", "");
 
   try {
-    const apiBase = window.location.protocol === "file:" ? "http://127.0.0.1:3000" : "";
-    const response = await fetch(`${apiBase}/api/extract-event`, {
+    const response = await fetch("/api/extract-event", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ input })
@@ -385,8 +384,7 @@ async function discoverRealEvents() {
   setDiscoverStatus("", "");
 
   try {
-    const apiBase = window.location.protocol === "file:" ? "http://127.0.0.1:3000" : "";
-    const response = await fetch(`${apiBase}/api/discover-events`, { method: "POST" });
+    const response = await fetch("/api/discover-events", { method: "POST" });
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok || !data.success) {
