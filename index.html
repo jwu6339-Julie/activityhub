@@ -17,7 +17,6 @@
       <button class="nav-link" type="button" data-nav="favorites">收藏夹</button>
       <button class="nav-link" type="button" data-nav="admin">后台管理</button>
     </nav>
-    <button class="subscribe-button" type="button" id="openSubscribeButton">订阅提醒</button>
   </header>
 
   <main>
@@ -33,8 +32,7 @@
               <h2 id="filterTitle">搜索活动</h2>
             </div>
             <div class="discover-actions">
-              <button class="secondary-button" type="button" id="discoverEventsButton">刷新真实活动</button>
-              <span id="discoverStatus" class="ai-status" role="status" aria-live="polite"></span>
+              <button class="secondary-button" type="button" id="discoverEventsButton">刷新</button>
             </div>
           </div>
 
@@ -111,10 +109,6 @@
             <article class="stat-card">
               <span>即将开始</span>
               <strong id="soonCount">0</strong>
-            </article>
-            <article class="stat-card high">
-              <span>平均推荐分</span>
-              <strong id="averageScore">0</strong>
             </article>
           </div>
         </section>
@@ -277,26 +271,6 @@
       </div>
     </section>
   </main>
-
-  <dialog id="subscribeDialog" class="subscribe-dialog">
-    <form method="dialog" class="subscribe-form">
-      <div class="panel-header">
-        <div>
-          <p class="section-kicker">订阅提醒</p>
-          <h2>提醒占位设置</h2>
-        </div>
-        <button class="small-button" value="cancel" type="submit">关闭</button>
-      </div>
-      <p class="assistive-note">V1 暂不自动发送提醒，后续可接入邮件或日历提醒。这里先保存你的演示备注。</p>
-      <label>
-        邮箱或备注
-        <input id="subscribeInput" type="text" placeholder="例如：julie@company.com / 每周一整理活动">
-      </label>
-      <menu class="dialog-actions">
-        <button class="primary-button" id="saveSubscribeButton" value="default" type="button">保存占位信息</button>
-      </menu>
-    </form>
-  </dialog>
 
   <dialog id="eventDetailDialog" class="detail-dialog">
     <article class="detail-card">
