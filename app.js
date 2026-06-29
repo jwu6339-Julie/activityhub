@@ -1,6 +1,6 @@
 const STORAGE_KEY = "activityhub_events_v1";
 const DATA_SCHEMA_KEY = "activityhub_data_schema_version";
-const DATA_SCHEMA_VERSION = "verified-events-v3";
+const DATA_SCHEMA_VERSION = "real-discovery-v5";
 const SUBSCRIBE_KEY = "activityhub_subscribe_note_v1";
 let activeDetailId = null;
 
@@ -86,7 +86,7 @@ function loadEvents() {
   if (localStorage.getItem(DATA_SCHEMA_KEY) !== DATA_SCHEMA_VERSION) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
     localStorage.setItem(DATA_SCHEMA_KEY, DATA_SCHEMA_VERSION);
-    console.info("已清空旧数据：localStorage schema upgraded to verified-events-v3");
+    console.info("已清空旧数据：localStorage schema upgraded to real-discovery-v5");
     return [];
   }
 
@@ -116,8 +116,10 @@ function loadEvents() {
 }
 
 function isOldDemoSeed(items) {
+  const dirtyPattern = /(KPMG|毕马威|企业50|科技50|观点与|博鳌|圆满举行|成功举办|会后报道|新闻|报道|资讯|访谈|专访|观点文章)/i;
   return items.some((event) => String(event.link || "").includes("example."))
-    || items.some((event) => event.source === "展会官网" && String(event.posterUrl || "").startsWith("assets/"));
+    || items.some((event) => event.source === "展会官网" && String(event.posterUrl || "").startsWith("assets/"))
+    || items.some((event) => dirtyPattern.test(`${event.name || ""} ${event.source || ""} ${event.description || ""}`));
 }
 
 function normalizeEvent(event) {
@@ -138,15 +140,18 @@ function normalizeEvent(event) {
 function isAllowedStoredEvent(event) {
   if (!event.verifiedSource) return true;
   const titleText = `${event.name || ""} ${event.type || ""}`;
+  const fullText = `${titleText} ${event.source || ""} ${event.description || ""} ${event.summaryNote || ""}`;
   const nonEventPattern = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
   const eventTitlePattern = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
   const date = normalizeExtractedDate(event.date);
-  return (Boolean(event.link) || Boolean(event.registrationType))
+  return Boolean(event.link)
     && Boolean(event.posterUrl)
+    && Boolean(event.city)
+    && Boolean(event.location)
     && Boolean(date)
     && date >= "2026-05-01"
     && eventTitlePattern.test(titleText)
-    && !nonEventPattern.test(titleText);
+    && !nonEventPattern.test(fullText);
 }
 
 function createId() {
@@ -280,8 +285,10 @@ function openEventDetail(id) {
   elements.detailFavoriteButton.textContent = event.favorite ? "取消收藏" : "收藏";
 
   elements.detailContent.innerHTML = `
-    <div class="detail-layout">
+    <div class="detail-poster-top">
       ${renderPoster(event)}
+    </div>
+    <div class="detail-layout detail-layout-single">
       <div class="detail-info">
         <div class="detail-row"><strong>时间：</strong><span>${formatDate(event.date)}</span></div>
         <div class="detail-row"><strong>地点：</strong><span>${escapeHtml(event.city)} ${escapeHtml(event.location)}</span></div>
@@ -368,9 +375,8 @@ async function discoverRealEvents() {
     }
 
     const discovered = Array.isArray(data.events) ? data.events.map(mapDiscoveredEvent).filter(Boolean) : [];
-    console.info(`已写入 verified seed ${discovered.length} 条`);
-    console.info("已排除 RICS，因为当前来源是会后报道且无报名页");
-    console.info("已排除 KPMG / 博鳌 / 观点文章");
+    console.info(`已写入真实发现活动 ${discovered.length} 条`);
+    console.info("已过滤 KPMG / 博鳌 / 观点文章 / 会后报道 / 无报名链接内容");
     console.info(`当前首页活动数量 ${discovered.length}`);
 
     if (!discovered.length) {
@@ -383,7 +389,7 @@ async function discoverRealEvents() {
     events = discovered;
     saveEvents();
     render();
-    setDiscoverStatus(`已加载 ${discovered.length} 条符合条件的 verified 活动。已清除旧的资讯/报道/榜单数据。`, "success");
+    setDiscoverStatus(`已加载 ${discovered.length} 条符合条件的真实活动。已清除旧的资讯/报道/榜单数据。`, "success");
     showToast("真实活动已刷新");
   } catch (error) {
     setDiscoverStatus(error.message || "真实活动发现失败，请稍后重试", "error");
@@ -408,6 +414,7 @@ function mapDiscoveredEvent(event) {
     city: event.city || "",
     location: event.location || "",
     date: normalizeExtractedDate(event.date) || "",
+    endDate: normalizeExtractedDate(event.endDate) || "",
     organizer: event.organizer || "",
     source: event.source || "Verified source",
     link: registrationUrl,
@@ -415,6 +422,7 @@ function mapDiscoveredEvent(event) {
     registrationType: event.registrationType || "",
     sourceUrl,
     eventUrl,
+    category: event.category || event.eventType || "",
     posterUrl: event.posterUrl || "",
     tags: Array.isArray(event.themes) ? event.themes.join(", ") : "",
     salesType: "",
@@ -690,7 +698,7 @@ function getFilteredEvents() {
 function sortByDate(a, b) {
   const dateA = new Date(`${a.date || "9999-12-31"}T00:00:00`).getTime();
   const dateB = new Date(`${b.date || "9999-12-31"}T00:00:00`).getTime();
-  return dateA - dateB;
+  return dateB - dateA;
 }
 
 function render() {
@@ -887,6 +895,7 @@ function exportWordReport() {
     return `
     <h2>TOPIC ${index + 1}：${escapeHtml(event.name)}</h2>
     ${posterUrl ? `<p><img src="${escapeAttribute(posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报"></p>` : "<p>[活动海报] 未填写</p>"}
+    <p><strong>活动标题：</strong>${escapeHtml(event.name)}</p>
     <p><strong>地点：</strong>${escapeHtml(event.city)} ${escapeHtml(event.location)}</p>
     <p><strong>时间：</strong>${formatDate(event.date)}</p>
     <p><strong>报名方式 / 报名链接：</strong>${registrationHtml}</p>
@@ -1107,3 +1116,6 @@ document.body.addEventListener("click", (event) => {
 });
 
 render();
+if (!events.length && window.location.protocol !== "file:") {
+  discoverRealEvents();
+}
