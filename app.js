@@ -1,7 +1,6 @@
 const STORAGE_KEY = "activityhub_events_v1";
 const DATA_SCHEMA_KEY = "activityhub_data_schema_version";
 const DATA_SCHEMA_VERSION = "verified-library-v1";
-const SUBSCRIBE_KEY = "activityhub_subscribe_note_v1";
 let activeDetailId = null;
 
 const coreTopicKeywords = [
@@ -66,13 +65,9 @@ const elements = {
   adminTotalCount: document.getElementById("adminTotalCount"),
   adminPendingCount: document.getElementById("adminPendingCount"),
   soonCount: document.getElementById("soonCount"),
-  averageScore: document.getElementById("averageScore"),
   clearFavoritesButton: document.getElementById("clearFavoritesButton"),
   exportWordButton: document.getElementById("exportWordButton"),
-  subscribeDialog: document.getElementById("subscribeDialog"),
   openSubscribeButton: document.getElementById("openSubscribeButton"),
-  subscribeInput: document.getElementById("subscribeInput"),
-  saveSubscribeButton: document.getElementById("saveSubscribeButton"),
   eventDetailDialog: document.getElementById("eventDetailDialog"),
   closeDetailButton: document.getElementById("closeDetailButton"),
   detailTitle: document.getElementById("detailTitle"),
@@ -286,7 +281,7 @@ async function loadVerifiedEventsFromServer() {
     replaceEventsPreservingUserState(verifiedEvents);
     saveEvents();
     render();
-    setDiscoverStatus(`已加载 ${verifiedEvents.length} 条固定活动，刷新不会删除已确认活动。`, "success");
+    setDiscoverStatus("", "");
   } catch (error) {
     const fallbackEvents = loadEvents().sort(sortByDate);
     if (fallbackEvents.length) {
@@ -387,7 +382,7 @@ async function extractEventWithAi() {
 
 async function discoverRealEvents() {
   setDiscoverLoading(true);
-  setDiscoverStatus("正在重新加载固定活动库...", "");
+  setDiscoverStatus("", "");
 
   try {
     const apiBase = window.location.protocol === "file:" ? "http://127.0.0.1:3000" : "";
@@ -416,8 +411,8 @@ async function discoverRealEvents() {
     replaceEventsPreservingUserState(discovered);
     saveEvents();
     render();
-    setDiscoverStatus(`已加载 ${totalVerified} 条固定活动，刷新不会删除已确认活动。`, "success");
-    showToast("固定活动库已重新加载");
+    setDiscoverStatus("", "");
+    showToast("已刷新");
   } catch (error) {
     setDiscoverStatus(error.message || "真实活动发现失败，请稍后重试", "error");
   } finally {
@@ -610,10 +605,11 @@ function setAiStatus(message, type) {
 
 function setDiscoverLoading(isLoading) {
   elements.discoverEventsButton.disabled = isLoading;
-  elements.discoverEventsButton.textContent = isLoading ? "刷新中..." : "刷新真实活动";
+  elements.discoverEventsButton.textContent = isLoading ? "刷新中..." : "刷新";
 }
 
 function setDiscoverStatus(message, type) {
+  if (!elements.discoverStatus) return;
   elements.discoverStatus.textContent = message;
   elements.discoverStatus.className = `ai-status${type ? ` ${type}` : ""}`;
 }
@@ -781,13 +777,9 @@ function render() {
 }
 
 function renderAdminStats() {
-  const scores = events.map((event) => scoreEvent(event).score);
-  const average = scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : 0;
-
   elements.adminTotalCount.textContent = events.length;
   elements.adminPendingCount.textContent = events.filter((event) => event.status === "待评估").length;
   elements.soonCount.textContent = events.filter((event) => isStartingSoon(event.date)).length;
-  elements.averageScore.textContent = average;
 }
 
 function renderFilters() {
@@ -811,7 +803,7 @@ function renderEventList() {
   const filtered = getFilteredEvents();
 
   if (!filtered.length) {
-    elements.eventList.innerHTML = `<p class="empty-state">暂无符合条件的真实可报名活动。你可以点击“刷新真实活动”，或在后台手动添加已确认的活动。</p>`;
+    elements.eventList.innerHTML = `<p class="empty-state">暂无符合条件的固定活动。你可以点击“刷新”，或在后台手动添加已确认的活动。</p>`;
     return;
   }
 
@@ -966,7 +958,7 @@ async function exportWordReport() {
     const registrationHtml = reportRegistrationHtml(event);
     return `
     <h2>TOPIC ${index + 1}：${escapeHtml(event.name)}</h2>
-    <div class="poster-block">${posterUrl ? `<img src="${escapeAttribute(posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报">` : "[活动海报] 未填写"}</div>
+    <div class="poster-block">${posterUrl ? `<img src="${escapeAttribute(posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报">` : "<span>海报见活动页</span>"}</div>
     <p><strong>时间：</strong>${formatDate(event.date)}</p>
     <p><strong>地点：</strong>${escapeHtml(event.city)} ${escapeHtml(event.location)}</p>
     <p><strong>报名链接：</strong>${registrationHtml}</p>
@@ -983,7 +975,8 @@ async function exportWordReport() {
     body { font-family: Georgia, "Times New Roman", "Songti SC", serif; max-width: 780px; margin: 40px auto; line-height: 1.65; color: #111827; }
     h2 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; margin-top: 32px; font-size: 20px; }
     .poster-block { page-break-inside: avoid; margin: 12px 0 20px; text-align: center; }
-    img { display: block; width: 5.3in; max-width: 70%; height: auto; object-fit: contain; border: 1px solid #d7dee8; margin: 0 auto 16px; }
+    img { display: block; width: 5.2in; max-width: 68%; height: auto; border: 1px solid #d7dee8; margin: 0 auto 16px; }
+    .poster-block span { color: #64748b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
     strong { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
   </style>
 </head>
@@ -1004,20 +997,42 @@ async function documentPosterUrl(posterUrl) {
   if (!posterUrl) return "";
   try {
     const absoluteUrl = new URL(posterUrl, window.location.href).href;
-    if (/\.svg($|\?)/i.test(absoluteUrl)) {
-      const response = await fetch(absoluteUrl);
-      if (!response.ok) return absoluteUrl;
-      const svgText = await response.text();
-      return `data:image/svg+xml;base64,${toBase64(svgText)}`;
-    }
-    return absoluteUrl;
+    return await imageUrlToPngDataUrl(absoluteUrl);
   } catch {
-    return posterUrl;
+    return "";
   }
 }
 
-function toBase64(value) {
-  return btoa(unescape(encodeURIComponent(value)));
+async function imageUrlToPngDataUrl(url) {
+  const response = await fetch(url);
+  if (!response.ok) return "";
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+
+  try {
+    const image = await loadImage(objectUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || image.width || 1080;
+    canvas.height = image.naturalHeight || image.height || 640;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/png");
+  } catch {
+    return "";
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
 }
 
 function reportRegistrationHtml(event) {
@@ -1101,25 +1116,6 @@ function showAdminTab(tabName) {
   elements.adminPanels.forEach((panel) => panel.classList.toggle("active", panel.id === `${tabName}Tab`));
 }
 
-function openSubscribeDialog() {
-  elements.subscribeInput.value = localStorage.getItem(SUBSCRIBE_KEY) || "";
-  if (typeof elements.subscribeDialog.showModal === "function") {
-    elements.subscribeDialog.showModal();
-  } else {
-    const value = window.prompt("V1 暂不自动发送提醒。可填写邮箱或备注作为占位：", elements.subscribeInput.value);
-    if (value !== null) {
-      localStorage.setItem(SUBSCRIBE_KEY, value);
-      showToast("订阅提醒占位信息已保存");
-    }
-  }
-}
-
-function saveSubscribeNote() {
-  localStorage.setItem(SUBSCRIBE_KEY, elements.subscribeInput.value.trim());
-  elements.subscribeDialog.close();
-  showToast("订阅提醒占位信息已保存，V1 暂不发送邮件");
-}
-
 function splitTags(tags) {
   return (tags || "")
     .split(/[,，、]/)
@@ -1180,8 +1176,9 @@ elements.clearFavoritesButton.addEventListener("click", clearFavorites);
 elements.exportWordButton.addEventListener("click", exportWordReport);
 elements.aiExtractButton.addEventListener("click", extractEventWithAi);
 elements.discoverEventsButton.addEventListener("click", discoverRealEvents);
-elements.openSubscribeButton.addEventListener("click", openSubscribeDialog);
-elements.saveSubscribeButton.addEventListener("click", saveSubscribeNote);
+if (elements.openSubscribeButton) {
+  elements.openSubscribeButton.addEventListener("click", () => {});
+}
 elements.closeDetailButton.addEventListener("click", closeEventDetail);
 elements.detailFavoriteButton.addEventListener("click", toggleDetailFavorite);
 
