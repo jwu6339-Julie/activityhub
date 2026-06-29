@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="640" viewBox="0 0 1080 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f2f46"/>
+      <stop offset="1" stop-color="#22577a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="640" fill="url(#bg)"/>
+  <rect x="60" y="58" width="960" height="524" rx="34" fill="#ffffff" opacity="0.08" stroke="#d9e8ef" stroke-opacity="0.22"/>
+  <circle cx="860" cy="170" r="128" fill="#d6a545" opacity="0.18"/>
+  <path d="M766 432h184v78H766zM805 356h106v76H805zM842 294h34v62h-34z" fill="#d6a545" opacity="0.66"/>
+  <text x="84" y="136" fill="#d6a545" font-size="34" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">智慧楼宇 / 设施管理</text>
+  <text x="84" y="252" fill="#ffffff" font-size="62" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">Build4Asia 2026</text>
+  <text x="84" y="330" fill="#ffffff" font-size="46" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">亚洲创新建筑、电气、安防科技展览会</text>
+  <text x="84" y="452" fill="#e8f4f7" font-size="32" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700">2026.05.06-05.08 · 香港会议展览中心</text>
+  <text x="84" y="518" fill="#d8e8ef" font-size="26" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">建筑科技 · 物业管理 · 商业地产运营</text>
+</svg>
