@@ -26,8 +26,6 @@ const DISCOVERY_KEYWORDS = [
 const VERIFIED_SOURCE_URLS = [
   "https://www.expocoss.com/",
   "https://boao.guandian.cn/",
-  "https://www.guandian.cn/article/20260607/565580.html",
-  "https://kpmg.com/cn/zh/campaigns/2026/06/kpmg-china-leading-proptech50-2026-a-series-of-dialogues-on-next-gen-digital-innovation.html",
   "https://www.build4asia.com/visitor/",
   "https://www.build4asia.com/zh/",
   "https://www.chinacleanexpo.com/cfme",
@@ -35,9 +33,10 @@ const VERIFIED_SOURCE_URLS = [
   "https://pujiang.sse.com.cn/update/notice/bond/c/c_20260326_10813113.shtml"
 ];
 
-const NON_EVENT_PATTERN = /(观点|对话|专访|访谈|快讯|新闻|报道|评论|分析文章|白皮书|榜单|企业50|科技50|政策解读|研究报告)/i;
-const EVENT_TITLE_PATTERN = /(活动|大会|峰会|论坛|沙龙|展会|展览会|博览会|研讨会|培训|闭门会|推介会|交流会|会议|conference|summit|forum|expo|exhibition|seminar|webinar|registration)/i;
-const REGISTRATION_PATTERN = /(报名|立即报名|参会报名|观众登记|注册|报名入口|我要参会|预约参会|Register|Registration|Visitor Registration|Book Now|Apply Now)/i;
+const NON_EVENT_PATTERN = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
+const POST_EVENT_PATTERN = /(圆满举行|成功举办|成功召开|会后|回顾|现场回顾|精彩回顾|活动回顾|大会回顾)/i;
+const EVENT_TITLE_PATTERN = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
+const REGISTRATION_PATTERN = /(报名|立即报名|参会报名|我要报名|我要参会|观众登记|注册|报名入口|预约参会|在线报名|Register|Registration|Sign up|Apply|Book|Ticket|Visitor Registration)/i;
 
 loadEnv();
 
@@ -135,21 +134,15 @@ async function handleDiscoverEvents(response) {
           const page = await fetchPageContent(candidate.url);
           const pageTitle = candidate.title || page.title || "";
           const candidateText = `${pageTitle} ${page.text}`;
-
-          if (isObviousNonEvent(pageTitle, candidate.url)) {
-            result.isRealEvent = "no";
-            result.kept = "filtered";
-            result.filteredReason = "标题或链接显示为新闻、访谈、观点、榜单或研究内容";
-            logCandidateResult(result);
-            continue;
-          }
+          result.isArticleNewsInterview = isArticleNewsInterview(pageTitle, candidateText, candidate.url) ? "yes" : "no";
 
           const registration = extractRegistrationLink(page.html, candidate.url);
           const registrationUrl = sanitizeRegistrationUrl(registration.url || inferRegistrationUrl(candidate.url, page.text));
+          result.registrationUrl = registrationUrl || "";
           result.registrationLinkFound = registrationUrl ? "yes" : "no";
           if (!registrationUrl) {
             result.kept = "filtered";
-            result.filteredReason = "未找到直接报名链接";
+            result.filteredReason = "filtered: no direct registration link";
             logCandidateResult(result);
             continue;
           }
@@ -355,6 +348,7 @@ function extractCandidateLinks(html, baseUrl, sourceName) {
     const url = toAbsoluteUrl(rawHref, baseUrl);
     if (!url || !isHttpUrl(url)) return;
     if (url.includes("#") && new URL(url).pathname === new URL(baseUrl).pathname) return;
+    if (isArticleUrl(url) && !REGISTRATION_PATTERN.test(title)) return;
 
     const context = cleanText(`${title} ${rawHref}`);
     const score = scoreCandidate(title, context, url);
@@ -378,10 +372,10 @@ function extractRegistrationLink(html, baseUrl) {
     const text = cleanText($(element).text() || $(element).attr("aria-label") || $(element).attr("title") || "");
     const href = $(element).attr("href") || extractUrlFromOnclick($(element).attr("onclick") || "");
     if (!href || blockedPattern.test(href)) return;
-    if (!REGISTRATION_PATTERN.test(text) && !REGISTRATION_PATTERN.test(href)) return;
+    if (!REGISTRATION_PATTERN.test(text)) return;
 
     const url = toAbsoluteUrl(href, baseUrl);
-    if (url && isHttpUrl(url) && !isLikelyHomepage(url) && !isBlockedRegistrationUrl(url) && !isFileDownload(url)) {
+    if (isValidDirectRegistrationUrl(url, baseUrl)) {
       candidates.push(url);
     }
   });
@@ -390,8 +384,8 @@ function extractRegistrationLink(html, baseUrl) {
 }
 
 function inferRegistrationUrl(pageUrl, pageText) {
-  const urlLooksLikeRegistration = /(visitor|register|registration|signup|apply|报名|登记)/i.test(pageUrl);
-  if (!isLikelyHomepage(pageUrl) && urlLooksLikeRegistration && REGISTRATION_PATTERN.test(pageText)) {
+  const urlLooksLikeRegistration = /(visitor|register|registration|signup|apply|ticket|book|报名|登记|参会)/i.test(pageUrl);
+  if (!isLikelyHomepage(pageUrl) && urlLooksLikeRegistration && !isArticleUrl(pageUrl) && REGISTRATION_PATTERN.test(pageText)) {
     return pageUrl;
   }
   return "";
@@ -609,30 +603,41 @@ function normalizeDiscoveredEvent(event) {
 
 function evaluateDiscoveredEvent(event, pageText = "") {
   if (!event.registrationUrl) {
-    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "未找到直接报名链接" };
+    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no direct registration link" };
   }
 
-  const date = parseEventDate(event.date);
+  const date = parseEventDate(event.date, pageText);
   if (!date) {
-    return { keep: false, isAfterMinDate: false, isRealEvent: isRealEvent(event, pageText), reason: "无法识别活动日期" };
+    return { keep: false, isAfterMinDate: false, isRealEvent: isRealEvent(event, pageText), reason: "filtered: no valid date" };
   }
 
   const isAfterMinDate = date >= new Date(`${MIN_DISCOVERY_DATE}T00:00:00`);
   if (!isAfterMinDate) {
-    return { keep: false, isAfterMinDate, isRealEvent: isRealEvent(event, pageText), reason: `活动日期早于 ${MIN_DISCOVERY_DATE}` };
+    return { keep: false, isAfterMinDate, isRealEvent: isRealEvent(event, pageText), reason: `filtered: before ${MIN_DISCOVERY_DATE}` };
+  }
+
+  if (isArticleNewsInterview(event.title, pageText, event.eventUrl)) {
+    return { keep: false, isAfterMinDate, isRealEvent: false, reason: POST_EVENT_PATTERN.test(pageText) ? "filtered: post-event news" : "filtered: article/interview content" };
   }
 
   const realEvent = isRealEvent(event, pageText);
   if (!realEvent) {
-    return { keep: false, isAfterMinDate, isRealEvent: false, reason: "页面属于新闻、访谈、观点、榜单或标题不像活动" };
+    return { keep: false, isAfterMinDate, isRealEvent: false, reason: "filtered: title does not look like event" };
+  }
+
+  if (!event.posterUrl) {
+    return { keep: false, isAfterMinDate, isRealEvent: realEvent, reason: "filtered: no poster or screenshot" };
   }
 
   return { keep: true, isAfterMinDate, isRealEvent: true, reason: "" };
 }
 
-function parseEventDate(value) {
-  const text = String(value || "").trim();
-  const match = text.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+function parseEventDate(value, context = "") {
+  const text = `${String(value || "").trim()} ${String(context || "").slice(0, 2400)}`;
+  const fullMatch = text.match(/(20\d{2})\s*(?:年|[-/.])\s*(\d{1,2})\s*(?:月|[-/.])\s*(\d{1,2})/);
+  const partialMatch = text.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+  const yearMatch = text.match(/(20\d{2})/);
+  const match = fullMatch || (partialMatch && yearMatch ? [partialMatch[0], yearMatch[1], partialMatch[1], partialMatch[2]] : null);
   if (!match) return null;
   const [, year, month, day] = match;
   const date = new Date(`${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00`);
@@ -642,7 +647,7 @@ function parseEventDate(value) {
 function isRealEvent(event, pageText = "") {
   const title = String(event.title || "");
   const combined = `${title} ${event.eventType || ""} ${event.themes?.join(" ") || ""}`;
-  if (isObviousNonEvent(combined, event.eventUrl || "")) return false;
+  if (isArticleNewsInterview(combined, pageText, event.eventUrl || "")) return false;
   if (EVENT_TITLE_PATTERN.test(combined)) return true;
 
   const firstText = String(pageText || "").slice(0, 1600);
@@ -690,7 +695,7 @@ function scoreCandidate(title = "", context = "", url = "") {
   const text = `${title} ${context} ${url}`.toLowerCase();
   let score = 0;
 
-  if (isObviousNonEvent(title, url)) return -10;
+  if (isArticleNewsInterview(title, context, url) && !REGISTRATION_PATTERN.test(context)) return -10;
 
   DISCOVERY_KEYWORDS.forEach((keyword) => {
     if (text.includes(keyword.toLowerCase())) score += 10;
@@ -702,19 +707,27 @@ function scoreCandidate(title = "", context = "", url = "") {
   return score;
 }
 
-function isObviousNonEvent(title = "", url = "") {
-  const text = `${title} ${url}`.toLowerCase();
+function isArticleNewsInterview(title = "", pageText = "", url = "") {
+  const text = `${title} ${String(pageText || "").slice(0, 1600)} ${url}`;
+  if (POST_EVENT_PATTERN.test(text)) return true;
   if (NON_EVENT_PATTERN.test(text)) return true;
-  if (/\/article\/|\/news\/|\/press|\/insight|\/report|\/pdf\//i.test(text) && !EVENT_TITLE_PATTERN.test(title)) return true;
+  if (isArticleUrl(url) && !REGISTRATION_PATTERN.test(text)) return true;
   return false;
+}
+
+function isArticleUrl(url = "") {
+  return /\/article\/|\/news\/|\/press|\/insight|\/report|\/pdf\/|\/campaigns\/.*proptech50/i.test(String(url || ""));
 }
 
 function createCandidateLog(candidate) {
   return {
     candidateTitle: candidate.title || candidate.url,
+    sourceUrl: candidate.url,
     eventDate: "unknown",
     isAfterMinDate: "unknown",
+    isArticleNewsInterview: "unknown",
     isRealEvent: "unknown",
+    registrationUrl: "",
     registrationLinkFound: "unknown",
     screenshotSuccess: "unknown",
     kept: "pending",
@@ -724,14 +737,16 @@ function createCandidateLog(candidate) {
 
 function logCandidateResult(result) {
   console.log("[discover-events]", [
-    `candidate title=${result.candidateTitle}`,
-    `event date=${result.eventDate}`,
-    `is after ${MIN_DISCOVERY_DATE}=${result.isAfterMinDate}`,
-    `is real event=${result.isRealEvent}`,
-    `registration link found=${result.registrationLinkFound}`,
-    `screenshot success=${result.screenshotSuccess}`,
-    `kept or filtered=${result.kept}`,
-    result.filteredReason ? `filtered reason=${result.filteredReason}` : ""
+    `candidate title: ${result.candidateTitle}`,
+    `source url: ${result.sourceUrl}`,
+    `detected date: ${result.eventDate}`,
+    `is after ${MIN_DISCOVERY_DATE}: ${result.isAfterMinDate}`,
+    `is article/news/interview: ${result.isArticleNewsInterview}`,
+    `registrationUrl: ${result.registrationUrl || ""}`,
+    `has direct registration: ${result.registrationLinkFound}`,
+    `poster/screenshot: ${result.screenshotSuccess}`,
+    `decision: ${result.kept}`,
+    result.filteredReason ? `filter reason: ${result.filteredReason}` : ""
   ].filter(Boolean).join(" | "));
 }
 
@@ -779,8 +794,18 @@ function isLikelyHomepage(url) {
 
 function sanitizeRegistrationUrl(url) {
   const value = String(url || "").trim();
-  if (!value || isLikelyHomepage(value) || isBlockedRegistrationUrl(value) || isFileDownload(value)) return "";
+  if (!isValidDirectRegistrationUrl(value, "")) return "";
   return value;
+}
+
+function isValidDirectRegistrationUrl(url, baseUrl = "") {
+  const value = String(url || "").trim();
+  if (!value || !isHttpUrl(value)) return false;
+  if (isLikelyHomepage(value) || isBlockedRegistrationUrl(value) || isFileDownload(value) || isArticleUrl(value)) return false;
+  if (baseUrl && stripHash(value) === stripHash(baseUrl) && !/(visitor|register|registration|signup|apply|ticket|book|报名|登记|参会)/i.test(value)) {
+    return false;
+  }
+  return true;
 }
 
 function isBlockedRegistrationUrl(url) {
@@ -796,6 +821,16 @@ function isBlockedCandidateUrl(url) {
 
 function isFileDownload(url) {
   return /\.(pdf|doc|docx|xls|xlsx|zip|rar)(\?|$)/i.test(String(url || ""));
+}
+
+function stripHash(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.href;
+  } catch {
+    return url;
+  }
 }
 
 function mergePlainNotes(...values) {
