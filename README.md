@@ -202,17 +202,18 @@ curl -s -X POST http://127.0.0.1:3000/api/discover-events
       "source": "来源网站",
       "eventUrl": "活动详情页",
       "registrationUrl": "",
+      "registrationType": "二维码报名",
       "posterUrl": "assets/generated-posters/event.png",
       "themes": ["商业地产"],
       "aiSummary": "100-150字中文活动简介",
-      "notes": "未找到直接报名链接"
+      "notes": "报名方式以海报二维码为主"
     }
   ],
   "sources": [
     {
-      "url": "https://boao.guandian.cn/",
-      "status": "ok",
-      "candidateCount": 5
+      "url": "https://www.sohu.com/a/1028863307_121948396",
+      "status": "kept",
+      "title": "2026房地产不良资产运营大会"
     }
   ]
 }
