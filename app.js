@@ -1,4 +1,6 @@
 const STORAGE_KEY = "activityhub_events_v1";
+const DATA_SCHEMA_KEY = "activityhub_data_schema_version";
+const DATA_SCHEMA_VERSION = "verified-events-v3";
 const SUBSCRIBE_KEY = "activityhub_subscribe_note_v1";
 let activeDetailId = null;
 
@@ -81,9 +83,17 @@ const elements = {
 };
 
 function loadEvents() {
+  if (localStorage.getItem(DATA_SCHEMA_KEY) !== DATA_SCHEMA_VERSION) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    localStorage.setItem(DATA_SCHEMA_KEY, DATA_SCHEMA_VERSION);
+    console.info("已清空旧数据：localStorage schema upgraded to verified-events-v3");
+    return [];
+  }
+
   const saved = localStorage.getItem(STORAGE_KEY);
   if (!saved) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    localStorage.setItem(DATA_SCHEMA_KEY, DATA_SCHEMA_VERSION);
     return [];
   }
 
@@ -149,6 +159,7 @@ function createId() {
 
 function saveEvents() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
+  localStorage.setItem(DATA_SCHEMA_KEY, DATA_SCHEMA_VERSION);
 }
 
 function getFormData() {
@@ -343,6 +354,11 @@ async function discoverRealEvents() {
   setDiscoverStatus("正在发现真实活动，请稍候", "");
 
   try {
+    events = [];
+    saveEvents();
+    render();
+    console.info("已清空旧数据");
+
     const apiBase = window.location.protocol === "file:" ? "http://127.0.0.1:3000" : "";
     const response = await fetch(`${apiBase}/api/discover-events`, { method: "POST" });
     const data = await response.json().catch(() => ({}));
@@ -352,6 +368,11 @@ async function discoverRealEvents() {
     }
 
     const discovered = Array.isArray(data.events) ? data.events.map(mapDiscoveredEvent).filter(Boolean) : [];
+    console.info(`已写入 verified seed ${discovered.length} 条`);
+    console.info("已排除 RICS，因为当前来源是会后报道且无报名页");
+    console.info("已排除 KPMG / 博鳌 / 观点文章");
+    console.info(`当前首页活动数量 ${discovered.length}`);
+
     if (!discovered.length) {
       const message = "未找到符合条件的活动。原因可能是：没有直接报名链接、活动日期早于 2026 年 5 月、或页面属于新闻报道而非活动。";
       setDiscoverStatus(message, "error");
@@ -359,10 +380,10 @@ async function discoverRealEvents() {
       return;
     }
 
-    const result = mergeDiscoveredEvents(discovered);
+    events = discovered;
     saveEvents();
     render();
-    setDiscoverStatus(`发现 ${discovered.length} 条符合条件的真实活动，已过滤无报名链接/过期/资讯类内容。新增 ${result.added} 条，更新 ${result.updated} 条。`, "success");
+    setDiscoverStatus(`已加载 ${discovered.length} 条符合条件的 verified 活动。已清除旧的资讯/报道/榜单数据。`, "success");
     showToast("真实活动已刷新");
   } catch (error) {
     setDiscoverStatus(error.message || "真实活动发现失败，请稍后重试", "error");
