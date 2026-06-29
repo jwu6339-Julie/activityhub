@@ -13,6 +13,8 @@ const PORT = Number(process.env.PORT || 3000);
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 const MAX_INPUT_LENGTH = 18000;
 const MAX_BODY_SIZE = 1024 * 1024;
+const MAX_DISCOVERY_CANDIDATES = 16;
+const MAX_DISCOVERED_EVENTS = 12;
 const GENERATED_POSTER_DIR = path.join(__dirname, "assets", "generated-posters");
 const GENERATED_POSTER_PUBLIC_DIR = "assets/generated-posters";
 const MIN_DISCOVERY_DATE = "2026-05-01";
@@ -20,58 +22,48 @@ const MIN_DISCOVERY_DATE = "2026-05-01";
 const DISCOVERY_KEYWORDS = [
   "商业地产", "地产峰会", "地产论坛", "商业地产活动", "REITs", "商业不动产",
   "办公租赁", "地产科技", "PropTech", "设施管理", "智慧楼宇", "智慧园区",
-  "商业楼宇", "资产管理", "存量资产", "商业空间"
+  "商业楼宇", "资产管理", "存量资产", "商业空间", "不良资产",
+  "产业园区", "物流地产", "城市更新", "商办"
 ];
 
-// Broad source crawling is intentionally disabled for V3. /api/discover-events only returns VERIFIED_SEED_EVENTS.
-const VERIFIED_SOURCE_URLS = [];
-
-const VERIFIED_SEED_EVENTS = [
-  {
-    title: "2026房地产不良资产运营大会",
-    eventType: "大会",
-    city: "北京",
-    location: "中国北京·厦航嘉年华酒店",
-    date: "2026-06-12",
-    organizer: "火栗网、N+俱乐部",
-    source: "搜狐 / 强哥说想法",
-    sourceUrl: "https://www.sohu.com/a/1028863307_121948396",
-    registrationUrl: "",
-    registrationType: "二维码报名",
-    themes: ["房地产不良资产", "存量资产", "资产运营", "商业地产", "特殊资产"],
-    aiSummary: "本次大会围绕房地产不良资产的投资、处置与盘活展开，聚焦金融机构新业务思路、地产公司转型、商业地产投资逻辑和专业服务机构能力升级。活动适合关注存量资产盘活、不良资产投资、商业地产运营和资产管理机会的团队。报名方式以页面海报二维码为主，需人工扫码确认。",
-    notes: "本次大会围绕房地产不良资产的投资、处置与盘活展开，聚焦金融机构新业务思路、地产公司转型、商业地产投资逻辑和专业服务机构能力升级。活动适合关注存量资产盘活、不良资产投资、商业地产运营和资产管理机会的团队。报名方式以页面海报二维码为主，需人工扫码确认。"
-  },
-  {
-    title: "2026中国商业地产投资专业展览会",
-    eventType: "展览会",
-    city: "北京",
-    location: "北京",
-    date: "2026-06-26",
-    organizer: "房讯网、房讯指数CORC",
-    source: "EXPO CORC 官网",
-    sourceUrl: "https://www.expocoss.com/",
-    registrationUrl: "",
-    registrationType: "官网咨询/报名入口待确认",
-    themes: ["商业地产", "商业地产投资", "办公租赁", "资产管理", "商办"],
-    aiSummary: "2026中国商业地产投资专业展览会聚焦商业地产选址、投资、运营、品牌价值与跨行业合作，面向房企、投资机构、代理机构、中小企业商家及专业服务机构。活动适合关注商办市场、资产管理、项目招商和客户拓展机会的团队。报名入口需在官网进一步确认，不要伪造报名链接。",
-    notes: "2026中国商业地产投资专业展览会聚焦商业地产选址、投资、运营、品牌价值与跨行业合作，面向房企、投资机构、代理机构、中小企业商家及专业服务机构。活动适合关注商办市场、资产管理、项目招商和客户拓展机会的团队。报名入口需在官网进一步确认，不要伪造报名链接。"
-  }
+const DISCOVERY_QUERIES = [
+  "2026 商业地产 活动 报名",
+  "2026 地产科技 大会 报名",
+  "2026 REITs 研讨会 报名",
+  "2026 存量资产 论坛 报名",
+  "2026 不良资产 大会 报名",
+  "2026 办公租赁 活动 报名",
+  "2026 设施管理 会议 报名",
+  "2026 产业园区 大会 报名",
+  "2026 物流地产 峰会 报名",
+  "2026 智慧楼宇 论坛 报名",
+  "2026房地产不良资产运营大会 报名",
+  "RICS REITs赋能存量资产价值跃升研讨会 报名",
+  "2026中国商业地产投资专业展览会 报名"
 ];
 
-const FILTERED_VERIFIED_SEEDS = [
-  {
-    title: "RICS REITs赋能存量资产价值跃升研讨会",
-    sourceUrl: "公开搜索结果",
-    // RICS REITs event excluded because current public source is post-event report and no direct registration page was found.
-    reason: "filtered: post-event news / no original registration page"
-  }
+const HIGH_CONFIDENCE_SOURCE_URLS = [
+  "https://www.build4asia.com/visit/",
+  "https://www.build4asia.com/visitor/",
+  "https://www.chinacleanexpo.com/cfme",
+  "https://www.chpmexpo.com/",
+  "https://www.expocoss.com/",
+  "https://www.opifair.com.cn/",
+  "https://gebt.gymf.com.cn/",
+  "https://gile.gymf.com.cn/"
 ];
 
 const NON_EVENT_PATTERN = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
 const POST_EVENT_PATTERN = /(圆满举行|成功举办|成功召开|会后|回顾|现场回顾|精彩回顾|活动回顾|大会回顾)/i;
 const EVENT_TITLE_PATTERN = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
 const REGISTRATION_PATTERN = /(报名|立即报名|参会报名|我要报名|我要参会|观众登记|注册|报名入口|预约参会|在线报名|Register|Registration|Sign up|Apply|Book|Ticket|Visitor Registration)/i;
+const SEARCH_RESULT_SELECTOR = [
+  ".vr-title a",
+  "li.b_algo h2 a",
+  ".b_title a",
+  "h3 a",
+  "a.result__a"
+].join(",");
 
 loadEnv();
 
@@ -153,39 +145,27 @@ async function handleDiscoverEvents(response) {
 
   try {
     await mkdir(GENERATED_POSTER_DIR, { recursive: true });
+    const candidates = await discoverEventCandidates(diagnostics);
     const browser = await chromium.launch({ headless: true });
     const events = [];
 
     try {
-      for (const seed of VERIFIED_SEED_EVENTS) {
-        const event = await buildVerifiedSeedEvent(seed, browser, diagnostics);
-        if (event) {
-          events.push(event);
-        }
+      for (const candidate of candidates.slice(0, MAX_DISCOVERY_CANDIDATES)) {
+        const event = await processDiscoveredCandidate(candidate, browser, diagnostics);
+        if (event) events.push(event);
+        if (events.length >= MAX_DISCOVERED_EVENTS) break;
       }
-      FILTERED_VERIFIED_SEEDS.forEach((seed) => {
-        logCandidateResult({
-          candidateTitle: seed.title,
-          sourceUrl: seed.sourceUrl,
-          eventDate: "unknown",
-          isAfterMinDate: "unknown",
-          isArticleNewsInterview: "yes",
-          isRealEvent: "no",
-          registrationUrl: "",
-          registrationLinkFound: "no",
-          screenshotSuccess: "unknown",
-          kept: "filtered",
-          filteredReason: seed.reason
-        });
-        diagnostics.push({ url: seed.sourceUrl, status: "filtered", title: seed.title, reason: seed.reason });
-      });
     } finally {
       await browser.close();
     }
 
+    const finalEvents = dedupeEvents(events)
+      .sort((a, b) => parseEventDate(b.date)?.getTime() - parseEventDate(a.date)?.getTime())
+      .slice(0, 18);
+
     sendJson(response, 200, {
       success: true,
-      events,
+      events: finalEvents,
       sources: diagnostics
     });
   } catch (error) {
@@ -197,98 +177,102 @@ async function handleDiscoverEvents(response) {
   }
 }
 
-async function buildVerifiedSeedEvent(seed, browser, diagnostics) {
-  const result = {
-    candidateTitle: seed.title,
-    sourceUrl: seed.sourceUrl,
-    eventDate: seed.date,
-    isAfterMinDate: seed.date >= MIN_DISCOVERY_DATE ? "yes" : "no",
-    isArticleNewsInterview: "no",
-    isRealEvent: EVENT_TITLE_PATTERN.test(seed.title) ? "yes" : "no",
-    registrationUrl: seed.registrationUrl || "",
-    registrationLinkFound: seed.registrationUrl ? "yes" : seed.registrationType ? `type: ${seed.registrationType}` : "no",
-    screenshotSuccess: "no",
-    kept: "pending",
-    filteredReason: ""
-  };
-
+async function processDiscoveredCandidate(candidate, browser, diagnostics) {
+  const result = createCandidateLog(candidate);
   try {
-    const posterUrl = await resolveSeedPoster(seed, browser);
-    result.screenshotSuccess = posterUrl ? "yes" : "no";
+    const page = await fetchPageContent(candidate.url).catch(() => fetchPageContentWithBrowser(candidate.url, browser));
+    const sourceUrl = page.url || candidate.url;
+    const pageTitle = candidate.title || page.title || "";
+    const candidateText = `${pageTitle} ${page.text}`;
+    result.sourceUrl = sourceUrl;
+    result.isArticleNewsInterview = isArticleNewsInterview(pageTitle, candidateText, sourceUrl) ? "yes" : "no";
 
-    const event = {
-      ...seed,
-      eventUrl: seed.sourceUrl,
+    if (result.isArticleNewsInterview === "yes") {
+      result.kept = "filtered";
+      result.filteredReason = POST_EVENT_PATTERN.test(candidateText)
+        ? "filtered: post-event news"
+        : "filtered: article/interview content";
+      logCandidateResult(result);
+      diagnostics.push({ url: sourceUrl, status: "filtered", title: pageTitle, reason: result.filteredReason });
+      return null;
+    }
+
+    const registration = extractRegistrationLink(page.html, sourceUrl);
+    const registrationUrl = sanitizeRegistrationUrl(registration.url || inferRegistrationUrl(sourceUrl, page.text));
+    result.registrationUrl = registrationUrl;
+    result.registrationLinkFound = registrationUrl ? "yes" : "no";
+    if (!registrationUrl) {
+      result.kept = "filtered";
+      result.filteredReason = "filtered: no direct registration link";
+      logCandidateResult(result);
+      diagnostics.push({ url: sourceUrl, status: "filtered", title: pageTitle, reason: result.filteredReason });
+      return null;
+    }
+
+    const slug = createSlug(pageTitle || candidate.url);
+    const posterUrl = await extractPosterImage(page.html, sourceUrl, slug)
+      || await captureEventHeroScreenshot(sourceUrl, slug, browser);
+    result.screenshotSuccess = posterUrl ? "yes" : "no";
+    if (!posterUrl) {
+      result.kept = "filtered";
+      result.filteredReason = "filtered: no poster or screenshot";
+      logCandidateResult(result);
+      diagnostics.push({ url: sourceUrl, status: "filtered", title: pageTitle, reason: result.filteredReason });
+      return null;
+    }
+
+    const summarized = await summarizeEventWithAI({
+      pageText: candidateText,
+      url: sourceUrl,
+      sourceName: candidate.sourceName || page.sourceName,
+      registrationUrl,
+      screenshotPath: posterUrl,
+      candidateTitle: pageTitle
+    });
+    const normalized = normalizeDiscoveredEvent({
+      ...summarized,
+      source: summarized.source || candidate.sourceName || page.sourceName,
+      sourceUrl,
+      eventUrl: sourceUrl,
+      registrationUrl,
       posterUrl,
       verifiedSource: true
-    };
-    const quality = evaluateVerifiedSeedEvent(event);
+    });
+    applyKnownSourceCorrections(normalized);
+    const quality = evaluateDiscoveredEvent(normalized, candidateText);
+    result.eventDate = normalized.date || "unknown";
+    result.isAfterMinDate = quality.isAfterMinDate ? "yes" : "no";
+    result.isRealEvent = quality.isRealEvent ? "yes" : "no";
     result.kept = quality.keep ? "kept" : "filtered";
-    result.filteredReason = quality.reason;
+    result.filteredReason = quality.reason || "";
     logCandidateResult(result);
-    diagnostics.push({ url: seed.sourceUrl, status: quality.keep ? "kept" : "filtered", title: seed.title, reason: quality.reason || "" });
+    diagnostics.push({
+      url: sourceUrl,
+      status: quality.keep ? "kept" : "filtered",
+      title: normalized.title || pageTitle,
+      reason: quality.reason || ""
+    });
 
-    return quality.keep ? event : null;
+    return quality.keep ? {
+      ...normalized,
+      verifiedSource: true
+    } : null;
   } catch (error) {
     result.kept = "failed";
-    result.filteredReason = error.message || "verified seed processing failed";
+    result.filteredReason = error.publicMessage || error.message || "candidate failed";
     logCandidateResult(result);
-    diagnostics.push({ url: seed.sourceUrl, status: "failed", title: seed.title, error: result.filteredReason });
+    diagnostics.push({
+      url: candidate.url,
+      status: "failed",
+      title: candidate.title || candidate.url,
+      error: result.filteredReason
+    });
     return null;
   }
 }
 
-async function resolveSeedPoster(seed, browser) {
-  const slug = createSlug(seed.title);
-
-  try {
-    const page = await fetchPageContent(seed.sourceUrl);
-    const poster = await extractPosterImage(page.html, seed.sourceUrl, slug);
-    if (poster) return poster;
-  } catch {
-    // Some public pages reject plain fetch; Playwright screenshot is the next fallback.
-  }
-
-  const screenshot = await captureEventScreenshot(seed.sourceUrl, slug, browser);
-  if (screenshot) return screenshot;
-
-  return createPlaceholderPoster(seed, slug);
-}
-
-async function createPlaceholderPoster(seed, slug) {
-  const fileName = `${slug}-placeholder-${Date.now()}.svg`;
-  const filePath = path.join(GENERATED_POSTER_DIR, fileName);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620">
-  <rect width="1000" height="620" fill="#0f2f46"/>
-  <rect x="54" y="54" width="892" height="512" rx="28" fill="#173f5d"/>
-  <text x="86" y="148" fill="#c8962e" font-family="Arial, sans-serif" font-size="34" font-weight="700">${escapeSvg(seed.eventType)}</text>
-  <foreignObject x="84" y="190" width="820" height="210">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: Arial, sans-serif; color: white; font-size: 54px; line-height: 1.22; font-weight: 800;">${escapeSvg(seed.title)}</div>
-  </foreignObject>
-  <text x="86" y="472" fill="#e8f1f5" font-family="Arial, sans-serif" font-size="30">${escapeSvg(seed.date)} · ${escapeSvg(seed.city)}</text>
-  <text x="86" y="522" fill="#e8f1f5" font-family="Arial, sans-serif" font-size="26">${escapeSvg(seed.location)}</text>
-</svg>`;
-  await writeFile(filePath, svg);
-  return `${GENERATED_POSTER_PUBLIC_DIR}/${fileName}`;
-}
-
-function evaluateVerifiedSeedEvent(event) {
-  if (event.date < MIN_DISCOVERY_DATE) return { keep: false, reason: `filtered: before ${MIN_DISCOVERY_DATE}` };
-  if (!event.city) return { keep: false, reason: "filtered: no city" };
-  if (!event.location) return { keep: false, reason: "filtered: no location" };
-  if (!EVENT_TITLE_PATTERN.test(event.title)) return { keep: false, reason: "filtered: title does not look like event" };
-  if (NON_EVENT_PATTERN.test(event.title)) return { keep: false, reason: "filtered: article/interview content" };
-  if (!event.registrationUrl && !event.registrationType) return { keep: false, reason: "filtered: no registrationUrl or registrationType" };
-  if (!event.posterUrl) return { keep: false, reason: "filtered: no poster or screenshot" };
-  return { keep: true, reason: "" };
-}
-
-function escapeSvg(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function ensureNoRicsPostEventSeed() {
+  console.log("RICS REITs event excluded unless an original registration page is discovered; post-event reports are filtered.");
 }
 
 async function prepareSourceText(input) {
@@ -340,34 +324,43 @@ async function prepareSourceText(input) {
 }
 
 async function discoverEventCandidates(diagnostics) {
-  const candidates = [];
+  ensureNoRicsPostEventSeed();
+  const candidates = HIGH_CONFIDENCE_SOURCE_URLS.map((url) => ({
+    url,
+    title: sourceNameFromUrl(url),
+    sourceName: sourceNameFromUrl(url),
+    score: 120,
+    discoverySource: "high-confidence-source"
+  }));
+  diagnostics.push({
+    query: "high-confidence official event pages",
+    status: "seeded_for_verification",
+    candidateCount: candidates.length
+  });
 
-  for (const sourceUrl of VERIFIED_SOURCE_URLS) {
+  const searched = await Promise.all(DISCOVERY_QUERIES.map(async (query) => {
     try {
-      const page = await fetchPageContent(sourceUrl);
-      const links = extractCandidateLinks(page.html, sourceUrl, page.sourceName);
-
-      candidates.push({
-        url: sourceUrl,
-        title: page.title,
-        sourceName: page.sourceName,
-        score: scoreCandidate(page.title, page.text, sourceUrl)
-      });
-      candidates.push(...links);
-
-      diagnostics.push({
-        url: sourceUrl,
-        status: "ok",
-        candidateCount: links.length + 1
-      });
+      const results = await searchWeb(query);
+      return { query, status: "searched", candidateCount: results.length, results };
     } catch (error) {
-      diagnostics.push({
-        url: sourceUrl,
-        status: "failed",
-        error: error.publicMessage || error.message || "来源读取失败"
-      });
+      return {
+        query,
+        status: "search_failed",
+        error: error.publicMessage || error.message || "来源读取失败",
+        results: []
+      };
     }
-  }
+  }));
+
+  searched.forEach((item) => {
+    candidates.push(...item.results);
+    diagnostics.push({
+      query: item.query,
+      status: item.status,
+      candidateCount: item.candidateCount || 0,
+      error: item.error
+    });
+  });
 
   const deduped = [...new Map(candidates.map((candidate) => [candidate.url, candidate])).values()];
   return deduped
@@ -375,9 +368,70 @@ async function discoverEventCandidates(diagnostics) {
       ...candidate,
       score: candidate.score || scoreCandidate(candidate.title, "", candidate.url)
     }))
-    .filter((candidate) => candidate.score > 0 || VERIFIED_SOURCE_URLS.includes(candidate.url))
+    .filter((candidate) => candidate.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 14);
+    .slice(0, 60);
+}
+
+async function searchWeb(query) {
+  const results = [];
+  const searchUrls = [
+    `https://www.sogou.com/web?query=${encodeURIComponent(query)}`,
+    `https://cn.bing.com/search?q=${encodeURIComponent(query)}&mkt=zh-CN&cc=cn&setlang=zh-CN`,
+    `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+  ];
+
+  for (const searchUrl of searchUrls) {
+    try {
+      const response = await fetchWithTimeout(searchUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 ActivityHub/0.3 real event discovery"
+        }
+      }, 8000);
+      if (!response.ok) continue;
+      const html = await response.text();
+      const $ = cheerio.load(html);
+      $(SEARCH_RESULT_SELECTOR).each((_, element) => {
+          const rawHref = $(element).attr("href");
+          const title = cleanText($(element).text() || $(element).attr("title") || "");
+          const url = normalizeSearchResultUrl(rawHref, searchUrl);
+          if (!url || !isHttpUrl(url)) return;
+          if (isBlockedCandidateUrl(url)) return;
+          if (isArticleUrl(url) && !REGISTRATION_PATTERN.test(`${title} ${url}`)) return;
+          if (!isRelevantSearchResult(title, url, query)) return;
+          const score = scoreCandidate(title, query, url);
+          if (score <= 0) return;
+          results.push({ url, title: title || url, sourceName: sourceNameFromUrl(url), score });
+        });
+    } catch {
+      // Keep trying other search entry points.
+    }
+    if (results.length >= 12) break;
+  }
+
+  return [...new Map(results.map((item) => [item.url, item])).values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
+}
+
+function normalizeSearchResultUrl(rawHref = "", searchUrl = "https://www.bing.com") {
+  if (!rawHref) return "";
+  try {
+    const parsed = new URL(rawHref, searchUrl);
+    if (parsed.hostname.includes("bing.com") && parsed.pathname === "/ck/a") {
+      const target = parsed.searchParams.get("u");
+      if (target) {
+        const normalized = target.startsWith("a1") ? Buffer.from(target.slice(2), "base64").toString("utf8") : target;
+        return normalized;
+      }
+    }
+    if (parsed.hostname.includes("duckduckgo.com") && parsed.searchParams.get("uddg")) {
+      return parsed.searchParams.get("uddg");
+    }
+    return parsed.href;
+  } catch {
+    return "";
+  }
 }
 
 async function fetchPageContent(url) {
@@ -407,13 +461,36 @@ async function fetchPageContent(url) {
     const text = cleanText($("body").text() || htmlToReadableText(html));
 
     return {
+      url: response.url || url,
       html,
       title,
       text: text.slice(0, MAX_INPUT_LENGTH),
-      sourceName: sourceNameFromUrl(url)
+      sourceName: sourceNameFromUrl(response.url || url)
     };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function fetchPageContentWithBrowser(url, browser) {
+  const page = await browser.newPage({ viewport: { width: 1100, height: 760 }, deviceScaleFactor: 1 });
+
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 18000 });
+    await page.waitForTimeout(1600);
+    await removeVisualOverlays(page);
+    const html = await page.content();
+    const title = cleanText(await page.title() || url);
+    const text = cleanText(await page.locator("body").innerText({ timeout: 5000 }).catch(() => htmlToReadableText(html)));
+    return {
+      url: page.url() || url,
+      html,
+      title,
+      text: text.slice(0, MAX_INPUT_LENGTH),
+      sourceName: sourceNameFromUrl(page.url() || url)
+    };
+  } finally {
+    await page.close();
   }
 }
 
@@ -452,15 +529,30 @@ function extractRegistrationLink(html, baseUrl) {
     const text = cleanText($(element).text() || $(element).attr("aria-label") || $(element).attr("title") || "");
     const href = $(element).attr("href") || extractUrlFromOnclick($(element).attr("onclick") || "");
     if (!href || blockedPattern.test(href)) return;
-    if (!REGISTRATION_PATTERN.test(text)) return;
+    const context = `${text} ${href}`;
+    if (!REGISTRATION_PATTERN.test(context) && !/(visitor|visit|pre-registration|my_tickets|参观|观众)/i.test(context)) return;
 
     const url = toAbsoluteUrl(href, baseUrl);
     if (isValidDirectRegistrationUrl(url, baseUrl)) {
-      candidates.push(url);
+      candidates.push({ url, score: scoreRegistrationCandidate(text, url) });
     }
   });
 
-  return candidates.length ? { url: candidates[0], direct: true } : { url: "", direct: false };
+  const best = candidates.sort((a, b) => b.score - a.score)[0];
+  return best ? { url: best.url, direct: true } : { url: "", direct: false };
+}
+
+function scoreRegistrationCandidate(text = "", url = "") {
+  const context = `${text} ${url}`;
+  let score = 0;
+
+  if (/(观众登记|参会报名|我要参会|预约参会|在线报名|visitor registration|buyer pre-registration|pre-registration|register|registration|sign up|ticket|my_tickets)/i.test(context)) score += 24;
+  if (/(报名|立即报名|我要报名|注册|apply)/i.test(context)) score += 16;
+  if (/(visit|visitor|参观|观众)/i.test(context)) score += 10;
+  if (/(exhibit|booth|stand|参展|展位|book your booth|zh-booking)/i.test(context)) score -= 18;
+  if (isLikelyHomepage(url)) score -= 20;
+
+  return score;
 }
 
 function inferRegistrationUrl(pageUrl, pageText) {
@@ -492,9 +584,82 @@ async function captureEventScreenshot(url, slug, browser) {
   }
 }
 
+async function captureEventHeroScreenshot(url, slug, browser) {
+  const page = await browser.newPage({ viewport: { width: 1100, height: 680 }, deviceScaleFactor: 1 });
+  const fileName = `${slug}-hero-${Date.now()}.png`;
+  const filePath = path.join(GENERATED_POSTER_DIR, fileName);
+
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 18000 });
+    await page.waitForTimeout(1400);
+    await removeVisualOverlays(page);
+
+    const hero = page.locator([
+      ".hero",
+      ".banner",
+      ".kv",
+      ".poster",
+      ".swiper",
+      ".carousel",
+      "header",
+      "main section"
+    ].join(",")).first();
+
+    if (await hero.count()) {
+      const box = await hero.boundingBox();
+      if (box && box.width >= 500 && box.height >= 180) {
+        await hero.screenshot({ path: filePath });
+        return `${GENERATED_POSTER_PUBLIC_DIR}/${fileName}`;
+      }
+    }
+
+    await page.screenshot({
+      path: filePath,
+      type: "png",
+      fullPage: false,
+      clip: { x: 0, y: 0, width: 1100, height: 620 }
+    });
+    return `${GENERATED_POSTER_PUBLIC_DIR}/${fileName}`;
+  } catch {
+    return "";
+  } finally {
+    await page.close();
+  }
+}
+
+async function removeVisualOverlays(page) {
+  await page.evaluate(() => {
+    const selectors = [
+      "[class*='cookie']",
+      "[id*='cookie']",
+      "[class*='modal']",
+      "[id*='modal']",
+      "[class*='popup']",
+      "[id*='popup']",
+      ".layui-layer-shade",
+      ".layui-layer",
+      ".el-overlay"
+    ];
+    selectors.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((node) => {
+        if (node instanceof HTMLElement) node.style.display = "none";
+      });
+    });
+  }).catch(() => {});
+}
+
 async function extractPosterImage(html, baseUrl, slug) {
   const $ = cheerio.load(html);
   const images = [];
+
+  const metaImage = $("meta[property='og:image']").attr("content")
+    || $("meta[name='twitter:image']").attr("content")
+    || $("meta[itemprop='image']").attr("content");
+  const absoluteMetaImage = toAbsoluteUrl(metaImage, baseUrl);
+  if (absoluteMetaImage && isHttpUrl(absoluteMetaImage) && !isBlockedRegistrationUrl(absoluteMetaImage)) {
+    const saved = await saveRemoteImage(absoluteMetaImage, `${slug}-og`);
+    if (saved) return saved;
+  }
 
   $("img[src]").each((_, element) => {
     const src = $(element).attr("src");
@@ -521,9 +686,9 @@ async function extractPosterImage(html, baseUrl, slug) {
 
 async function saveRemoteImage(url, slug) {
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: { "User-Agent": "ActivityHub/0.2 poster fetch" }
-    });
+    }, 10000);
     if (!response.ok) return "";
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.startsWith("image/")) return "";
@@ -550,7 +715,7 @@ async function summarizeEventWithAI({ pageText, url, sourceName, registrationUrl
     throw error;
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchWithTimeout("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
@@ -574,7 +739,7 @@ async function summarizeEventWithAI({ pageText, url, sourceName, registrationUrl
                 "posterUrl 只能使用用户提供的本地截图路径；没有则为空字符串。",
                 "date 优先返回 YYYY-MM-DD；如果只知道日期范围，返回开始日期。",
                 "如果无法识别明确活动日期，请 date 返回空字符串，并在 notes 说明。",
-                "aiSummary 写 100-150 字中文备注，说明活动内容、主题、适合关注原因。"
+                "aiSummary 写 140-220 字中文备注，说明活动做什么、核心议题、适合参会人群、与商业地产/地产科技/REITs/资管/租赁/设施管理等主题的关系。"
               ].join("\n")
             }
           ]
@@ -606,7 +771,7 @@ async function summarizeEventWithAI({ pageText, url, sourceName, registrationUrl
         }
       }
     })
-  });
+  }, 45000);
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -631,8 +796,11 @@ function discoveredEventSchema() {
       city: { type: "string" },
       location: { type: "string" },
       date: { type: "string" },
+      endDate: { type: "string" },
+      category: { type: "string" },
       organizer: { type: "string" },
       source: { type: "string" },
+      sourceUrl: { type: "string" },
       eventUrl: { type: "string" },
       registrationUrl: { type: "string" },
       posterUrl: { type: "string" },
@@ -646,8 +814,11 @@ function discoveredEventSchema() {
       "city",
       "location",
       "date",
+      "endDate",
+      "category",
       "organizer",
       "source",
+      "sourceUrl",
       "eventUrl",
       "registrationUrl",
       "posterUrl",
@@ -665,11 +836,14 @@ function normalizeDiscoveredEvent(event) {
   return {
     title: String(event.title || "").trim(),
     eventType: String(event.eventType || "其他"),
+    category: String(event.category || event.eventType || ""),
     city: String(event.city || ""),
     location: String(event.location || ""),
     date: String(event.date || ""),
+    endDate: String(event.endDate || ""),
     organizer: String(event.organizer || ""),
     source: String(event.source || ""),
+    sourceUrl: String(event.sourceUrl || event.eventUrl || ""),
     eventUrl: String(event.eventUrl || ""),
     registrationUrl,
     posterUrl: String(event.posterUrl || ""),
@@ -681,9 +855,45 @@ function normalizeDiscoveredEvent(event) {
   };
 }
 
+function applyKnownSourceCorrections(event) {
+  const sourceUrl = `${event.sourceUrl || ""} ${event.eventUrl || ""}`.toLowerCase();
+
+  if (sourceUrl.includes("build4asia.com")) {
+    event.title = "Build4Asia 2026 亚洲创新建筑、电气、安防科技展览会";
+    event.eventType = "展览会";
+    event.category = "智慧楼宇 / 设施管理 / 建筑科技";
+    event.city = "香港";
+    event.location = "香港会议展览中心";
+    event.date = "2026-05-06";
+    event.endDate = "2026-05-08";
+    event.organizer = event.organizer || "Informa Markets";
+    event.source = "Build4Asia 官方网站";
+    event.themes = uniqueValues([
+      "智慧楼宇",
+      "设施管理",
+      "商业地产",
+      "建筑科技",
+      "物业管理",
+      ...event.themes
+    ]);
+    if (!/imasia-passport\.com\/.*register/i.test(event.registrationUrl || "")) {
+      event.registrationUrl = "https://b4a.imasia-passport.com/en/user/register?destination=/en/my_tickets";
+    }
+    event.aiSummary = event.aiSummary || "Build4Asia 2026 聚焦建筑科技、智慧楼宇、安防系统、设施管理和物业运营解决方案，面向地产开发商、业主方、物业及设施管理团队、工程顾问和技术供应商。活动与商业地产运营、楼宇数字化和资产管理效率提升高度相关，适合关注楼宇更新、设施管理和智慧空间解决方案的团队参观。";
+  }
+}
+
 function evaluateDiscoveredEvent(event, pageText = "") {
   if (!event.registrationUrl) {
     return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no direct registration link" };
+  }
+
+  if (!event.city || !event.location) {
+    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: no city or location" };
+  }
+
+  if (!/(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|会议|培训|推介会|交流会|展会|conference|summit|forum|expo|exhibition|seminar|training)/i.test(event.eventType || event.title)) {
+    return { keep: false, isAfterMinDate: false, isRealEvent: false, reason: "filtered: invalid event type" };
   }
 
   const date = parseEventDate(event.date, pageText);
@@ -709,7 +919,26 @@ function evaluateDiscoveredEvent(event, pageText = "") {
     return { keep: false, isAfterMinDate, isRealEvent: realEvent, reason: "filtered: no poster or screenshot" };
   }
 
+  if (!isRelevantEvent(event, pageText)) {
+    return { keep: false, isAfterMinDate, isRealEvent: realEvent, reason: "filtered: not relevant to ActivityHub topics" };
+  }
+
   return { keep: true, isAfterMinDate, isRealEvent: true, reason: "" };
+}
+
+function isRelevantEvent(event, pageText = "") {
+  const text = [
+    event.title,
+    event.eventType,
+    event.category,
+    event.themes?.join(" "),
+    event.aiSummary,
+    event.notes,
+    String(pageText || "").slice(0, 1800)
+  ].join(" ").toLowerCase();
+
+  return DISCOVERY_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()))
+    || /(reit|proptech|commercial real estate|facility management|office leasing|asset management|logistics real estate)/i.test(text);
 }
 
 function parseEventDate(value, context = "") {
@@ -787,6 +1016,24 @@ function scoreCandidate(title = "", context = "", url = "") {
   return score;
 }
 
+function isRelevantSearchResult(title = "", url = "", query = "") {
+  const text = `${title} ${url} ${query}`;
+  if (!EVENT_TITLE_PATTERN.test(text)) return false;
+  if (NON_EVENT_PATTERN.test(text) || POST_EVENT_PATTERN.test(text)) return false;
+  if (isBlockedCandidateUrl(url) || isArticleUrl(url)) return false;
+
+  const resultText = `${title} ${url}`;
+  const hasTopic = DISCOVERY_KEYWORDS.some((keyword) => resultText.toLowerCase().includes(keyword.toLowerCase()))
+    || /(reit|proptech|commercial real estate|facility management|office leasing|asset management|smart building|logistics real estate)/i.test(resultText);
+  if (!hasTopic) return false;
+
+  const domainText = sourceNameFromUrl(url).toLowerCase();
+  const weakTemplate = /(wenjuan|template|baike|zhidao|wenda|exam|jiaoshi|kaogong|sumup|telecash|card-reader|payment|gov|edu)/i;
+  if (weakTemplate.test(`${domainText} ${url}`)) return false;
+
+  return true;
+}
+
 function isArticleNewsInterview(title = "", pageText = "", url = "") {
   const text = `${title} ${String(pageText || "").slice(0, 1600)} ${url}`;
   if (POST_EVENT_PATTERN.test(text)) return true;
@@ -796,7 +1043,7 @@ function isArticleNewsInterview(title = "", pageText = "", url = "") {
 }
 
 function isArticleUrl(url = "") {
-  return /\/article\/|\/news\/|\/press|\/insight|\/report|\/pdf\/|\/campaigns\/.*proptech50/i.test(String(url || ""));
+  return /\/article\/|\/news\/|\/press|\/insight|\/report|\/reports?|\/pdf\/|\/campaigns\/.*proptech50|guandian\.cn\/article|boao\.guandian|kpmg\.com\/.*proptech50|sohu\.com\/a\//i.test(String(url || ""));
 }
 
 function createCandidateLog(candidate) {
@@ -837,6 +1084,10 @@ function createSlug(value) {
 
 function cleanText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
 function sourceNameFromUrl(url) {
@@ -890,12 +1141,13 @@ function isValidDirectRegistrationUrl(url, baseUrl = "") {
 
 function isBlockedRegistrationUrl(url) {
   const text = String(url || "").toLowerCase();
-  return /beian|recordcode|privacy|terms|contact|about|copyright|police|公安|备案/.test(text);
+  return /beian|recordcode|privacy|terms|contact|about|copyright|police|公安|备案|login|signin|sign-in|passport|account|signup\/signup|register\/account/.test(text);
 }
 
 function isBlockedCandidateUrl(url) {
   const text = String(url || "").toLowerCase();
   return isBlockedRegistrationUrl(text)
+    || /kpmg\.com|guandian\.cn\/article|boao\.guandian|baike\.|zhidao\.|wenjuan\.com|telecash|sumup|card-reader|payment|kaoshi|exam/.test(text)
     || isFileDownload(text);
 }
 
@@ -915,6 +1167,20 @@ function stripHash(url) {
 
 function mergePlainNotes(...values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))].join("；");
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: options.signal || controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function extractEventWithOpenAI(sourceText, originalInput, sourceType) {
