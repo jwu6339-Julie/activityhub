@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="640" viewBox="0 0 1080 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#172b4d"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="640" fill="url(#bg)"/>
+  <rect x="62" y="58" width="956" height="524" rx="34" fill="#f8fafc" opacity="0.09" stroke="#ffffff" stroke-opacity="0.20"/>
+  <path d="M770 156h172v42H770zM770 230h220v42H770zM770 304h140v42H770z" fill="#d6a545" opacity="0.72"/>
+  <text x="86" y="136" fill="#d6a545" font-size="34" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">RICS · REITs · 存量资产</text>
+  <text x="86" y="242" fill="#ffffff" font-size="54" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">REITs赋能</text>
+  <text x="86" y="312" fill="#ffffff" font-size="54" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="800">存量资产价值跃升研讨会</text>
+  <text x="86" y="424" fill="#e8f4f7" font-size="32" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-weight="700">2026.06.17 · 北京 CBD</text>
+  <text x="86" y="500" fill="#d8e8ef" font-size="26" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif">公募REITs · 资产管理 · 存量盘活 · 商业不动产</text>
+</svg>
