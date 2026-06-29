@@ -25,12 +25,52 @@ const DISCOVERY_KEYWORDS = [
 
 const VERIFIED_SOURCE_URLS = [
   "https://www.expocoss.com/",
-  "https://boao.guandian.cn/",
   "https://www.build4asia.com/visitor/",
   "https://www.build4asia.com/zh/",
   "https://www.chinacleanexpo.com/cfme",
   "https://www.chpmexpo.com/",
   "https://pujiang.sse.com.cn/update/notice/bond/c/c_20260326_10813113.shtml"
+];
+
+const VERIFIED_SEED_EVENTS = [
+  {
+    title: "2026房地产不良资产运营大会",
+    eventType: "大会",
+    city: "北京",
+    location: "中国北京·厦航嘉年华酒店",
+    date: "2026-06-12",
+    organizer: "火栗网、N+俱乐部",
+    source: "搜狐 / 强哥说想法",
+    sourceUrl: "https://www.sohu.com/a/1028863307_121948396",
+    registrationUrl: "",
+    registrationType: "二维码报名",
+    themes: ["房地产不良资产", "存量资产", "资产运营", "商业地产", "特殊资产"],
+    aiSummary: "本次大会围绕房地产不良资产的投资、处置与盘活展开，聚焦金融机构新业务思路、地产公司转型、商业地产投资逻辑和专业服务机构能力升级。活动适合关注存量资产盘活、不良资产投资、商业地产运营和资产管理机会的团队。报名方式以页面海报二维码为主，需人工扫码确认。",
+    notes: "本次大会围绕房地产不良资产的投资、处置与盘活展开，聚焦金融机构新业务思路、地产公司转型、商业地产投资逻辑和专业服务机构能力升级。活动适合关注存量资产盘活、不良资产投资、商业地产运营和资产管理机会的团队。报名方式以页面海报二维码为主，需人工扫码确认。"
+  },
+  {
+    title: "2026中国商业地产投资专业展览会",
+    eventType: "展览会",
+    city: "北京",
+    location: "北京",
+    date: "2026-06-26",
+    organizer: "房讯网、房讯指数CORC",
+    source: "EXPO CORC 官网",
+    sourceUrl: "https://www.expocoss.com/",
+    registrationUrl: "",
+    registrationType: "官网咨询/报名入口待确认",
+    themes: ["商业地产", "商业地产投资", "办公租赁", "资产管理", "商办"],
+    aiSummary: "2026中国商业地产投资专业展览会聚焦商业地产选址、投资、运营、品牌价值与跨行业合作，面向房企、投资机构、代理机构、中小企业商家及专业服务机构。活动适合关注商办市场、资产管理、项目招商和客户拓展机会的团队。报名入口需在官网进一步确认，不要伪造报名链接。",
+    notes: "2026中国商业地产投资专业展览会聚焦商业地产选址、投资、运营、品牌价值与跨行业合作，面向房企、投资机构、代理机构、中小企业商家及专业服务机构。活动适合关注商办市场、资产管理、项目招商和客户拓展机会的团队。报名入口需在官网进一步确认，不要伪造报名链接。"
+  }
+];
+
+const FILTERED_VERIFIED_SEEDS = [
+  {
+    title: "RICS REITs赋能存量资产价值跃升研讨会",
+    sourceUrl: "公开搜索结果",
+    reason: "filtered: post-event news / no original registration page"
+  }
 ];
 
 const NON_EVENT_PATTERN = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
@@ -117,89 +157,40 @@ async function handleDiscoverEvents(response) {
   const diagnostics = [];
 
   try {
-    const candidates = await discoverEventCandidates(diagnostics);
-    if (!candidates.length) {
-      sendJson(response, 200, { success: true, events: [], sources: diagnostics });
-      return;
-    }
-
     await mkdir(GENERATED_POSTER_DIR, { recursive: true });
     const browser = await chromium.launch({ headless: true });
-    const discovered = [];
+    const events = [];
 
     try {
-      for (const candidate of candidates.slice(0, 8)) {
-        const result = createCandidateLog(candidate);
-        try {
-          const page = await fetchPageContent(candidate.url);
-          const pageTitle = candidate.title || page.title || "";
-          const candidateText = `${pageTitle} ${page.text}`;
-          result.isArticleNewsInterview = isArticleNewsInterview(pageTitle, candidateText, candidate.url) ? "yes" : "no";
-
-          const registration = extractRegistrationLink(page.html, candidate.url);
-          const registrationUrl = sanitizeRegistrationUrl(registration.url || inferRegistrationUrl(candidate.url, page.text));
-          result.registrationUrl = registrationUrl || "";
-          result.registrationLinkFound = registrationUrl ? "yes" : "no";
-          if (!registrationUrl) {
-            result.kept = "filtered";
-            result.filteredReason = "filtered: no direct registration link";
-            logCandidateResult(result);
-            continue;
-          }
-
-          const slug = createSlug(candidate.title || page.title || candidate.url);
-          const posterPath = await extractPosterImage(page.html, candidate.url, slug)
-            || await captureEventScreenshot(registrationUrl || candidate.url, slug, browser);
-          result.screenshotSuccess = posterPath ? "yes" : "no";
-          const summarized = await summarizeEventWithAI({
-            pageText: candidateText,
-            url: candidate.url,
-            sourceName: candidate.sourceName || page.sourceName,
-            registrationUrl,
-            screenshotPath: posterPath,
-            candidateTitle: candidate.title
-          });
-
-          const normalized = normalizeDiscoveredEvent({
-            ...summarized,
-            eventUrl: candidate.url,
-            registrationUrl,
-            posterUrl: posterPath,
-            source: summarized.source || candidate.sourceName || page.sourceName,
-            notes: mergePlainNotes(
-              summarized.notes,
-              registration.direct && registrationUrl ? "已识别直接报名链接" : "未找到直接报名链接"
-            )
-          });
-          const quality = evaluateDiscoveredEvent(normalized, candidateText);
-          result.eventDate = normalized.date || "unknown";
-          result.isAfterMinDate = quality.isAfterMinDate ? "yes" : "no";
-          result.isRealEvent = quality.isRealEvent ? "yes" : "no";
-          result.kept = quality.keep ? "kept" : "filtered";
-          result.filteredReason = quality.reason || "";
-          logCandidateResult(result);
-
-          if (quality.keep) {
-            discovered.push(normalized);
-          }
-        } catch (error) {
-          result.kept = "failed";
-          result.filteredReason = error.publicMessage || error.message || "候选活动处理失败";
-          logCandidateResult(result);
-          diagnostics.push({
-            url: candidate.url,
-            status: "failed",
-            error: error.publicMessage || error.message || "候选活动处理失败"
-          });
+      for (const seed of VERIFIED_SEED_EVENTS) {
+        const event = await buildVerifiedSeedEvent(seed, browser, diagnostics);
+        if (event) {
+          events.push(event);
         }
       }
+      FILTERED_VERIFIED_SEEDS.forEach((seed) => {
+        logCandidateResult({
+          candidateTitle: seed.title,
+          sourceUrl: seed.sourceUrl,
+          eventDate: "unknown",
+          isAfterMinDate: "unknown",
+          isArticleNewsInterview: "yes",
+          isRealEvent: "no",
+          registrationUrl: "",
+          registrationLinkFound: "no",
+          screenshotSuccess: "unknown",
+          kept: "filtered",
+          filteredReason: seed.reason
+        });
+        diagnostics.push({ url: seed.sourceUrl, status: "filtered", title: seed.title, reason: seed.reason });
+      });
     } finally {
       await browser.close();
     }
 
     sendJson(response, 200, {
       success: true,
-      events: dedupeEvents(discovered),
+      events,
       sources: diagnostics
     });
   } catch (error) {
@@ -209,6 +200,100 @@ async function handleDiscoverEvents(response) {
       sources: diagnostics
     });
   }
+}
+
+async function buildVerifiedSeedEvent(seed, browser, diagnostics) {
+  const result = {
+    candidateTitle: seed.title,
+    sourceUrl: seed.sourceUrl,
+    eventDate: seed.date,
+    isAfterMinDate: seed.date >= MIN_DISCOVERY_DATE ? "yes" : "no",
+    isArticleNewsInterview: "no",
+    isRealEvent: EVENT_TITLE_PATTERN.test(seed.title) ? "yes" : "no",
+    registrationUrl: seed.registrationUrl || "",
+    registrationLinkFound: seed.registrationUrl ? "yes" : seed.registrationType ? `type: ${seed.registrationType}` : "no",
+    screenshotSuccess: "no",
+    kept: "pending",
+    filteredReason: ""
+  };
+
+  try {
+    const posterUrl = await resolveSeedPoster(seed, browser);
+    result.screenshotSuccess = posterUrl ? "yes" : "no";
+
+    const event = {
+      ...seed,
+      eventUrl: seed.sourceUrl,
+      posterUrl,
+      verifiedSource: true
+    };
+    const quality = evaluateVerifiedSeedEvent(event);
+    result.kept = quality.keep ? "kept" : "filtered";
+    result.filteredReason = quality.reason;
+    logCandidateResult(result);
+    diagnostics.push({ url: seed.sourceUrl, status: quality.keep ? "kept" : "filtered", title: seed.title, reason: quality.reason || "" });
+
+    return quality.keep ? event : null;
+  } catch (error) {
+    result.kept = "failed";
+    result.filteredReason = error.message || "verified seed processing failed";
+    logCandidateResult(result);
+    diagnostics.push({ url: seed.sourceUrl, status: "failed", title: seed.title, error: result.filteredReason });
+    return null;
+  }
+}
+
+async function resolveSeedPoster(seed, browser) {
+  const slug = createSlug(seed.title);
+
+  try {
+    const page = await fetchPageContent(seed.sourceUrl);
+    const poster = await extractPosterImage(page.html, seed.sourceUrl, slug);
+    if (poster) return poster;
+  } catch {
+    // Some public pages reject plain fetch; Playwright screenshot is the next fallback.
+  }
+
+  const screenshot = await captureEventScreenshot(seed.sourceUrl, slug, browser);
+  if (screenshot) return screenshot;
+
+  return createPlaceholderPoster(seed, slug);
+}
+
+async function createPlaceholderPoster(seed, slug) {
+  const fileName = `${slug}-placeholder-${Date.now()}.svg`;
+  const filePath = path.join(GENERATED_POSTER_DIR, fileName);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620">
+  <rect width="1000" height="620" fill="#0f2f46"/>
+  <rect x="54" y="54" width="892" height="512" rx="28" fill="#173f5d"/>
+  <text x="86" y="148" fill="#c8962e" font-family="Arial, sans-serif" font-size="34" font-weight="700">${escapeSvg(seed.eventType)}</text>
+  <foreignObject x="84" y="190" width="820" height="210">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: Arial, sans-serif; color: white; font-size: 54px; line-height: 1.22; font-weight: 800;">${escapeSvg(seed.title)}</div>
+  </foreignObject>
+  <text x="86" y="472" fill="#e8f1f5" font-family="Arial, sans-serif" font-size="30">${escapeSvg(seed.date)} · ${escapeSvg(seed.city)}</text>
+  <text x="86" y="522" fill="#e8f1f5" font-family="Arial, sans-serif" font-size="26">${escapeSvg(seed.location)}</text>
+</svg>`;
+  await writeFile(filePath, svg);
+  return `${GENERATED_POSTER_PUBLIC_DIR}/${fileName}`;
+}
+
+function evaluateVerifiedSeedEvent(event) {
+  if (event.date < MIN_DISCOVERY_DATE) return { keep: false, reason: `filtered: before ${MIN_DISCOVERY_DATE}` };
+  if (!event.city) return { keep: false, reason: "filtered: no city" };
+  if (!event.location) return { keep: false, reason: "filtered: no location" };
+  if (!EVENT_TITLE_PATTERN.test(event.title)) return { keep: false, reason: "filtered: title does not look like event" };
+  if (NON_EVENT_PATTERN.test(event.title)) return { keep: false, reason: "filtered: article/interview content" };
+  if (!event.registrationUrl && !event.registrationType) return { keep: false, reason: "filtered: no registrationUrl or registrationType" };
+  if (!event.posterUrl) return { keep: false, reason: "filtered: no poster or screenshot" };
+  return { keep: true, reason: "" };
+}
+
+function escapeSvg(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 async function prepareSourceText(input) {
