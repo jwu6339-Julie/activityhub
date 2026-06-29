@@ -2,16 +2,18 @@
 
 ActivityHub 是一个用于整理商业地产、地产科技、REITs、办公租赁、智慧楼宇、设施管理等行业活动的轻量网页工具。
 
-当前版本是在本地 demo 基础上升级的 **API V2**：用户可以手动维护活动，也可以粘贴活动链接/原文让 AI 提取字段，还可以点击“刷新真实活动”从一组 verified public source URL 中发现公开活动、生成网页截图并保存为活动卡片。
+当前版本是在本地 demo 基础上升级的 **固定 verified 活动库 + 增量更新版**：页面打开后会先读取 `data/verified-events.json`，直接展示已经确认的真实活动；点击“刷新真实活动”只会增量补充或更新合规活动，不会清空或覆盖已确认活动。
 
 ## 当前状态
 
 - 已实现纯前端活动浏览 demo。
-- 已实现 localStorage 本地保存。
+- 已实现固定 verified 活动库：`data/verified-events.json`。
+- 已实现 localStorage 保存用户侧状态，例如收藏。
 - 已实现首页搜索、城市筛选、主题筛选、活动卡片、详情弹窗、收藏夹、Word 风格导出。
 - 已实现后台添加、编辑、删除活动。
 - 已新增 Node.js 后端接口 `POST /api/extract-event`。
-- 已新增 Node.js 后端接口 `POST /api/discover-events`。
+- 已新增 Node.js 后端接口 `GET /api/verified-events`。
+- 已新增 Node.js 后端接口 `POST /api/discover-events`，用于增量更新 verified 活动库。
 - 已新增 OpenAI API 提取和总结能力。
 - 已新增 Playwright 网页截图能力，截图保存到 `assets/generated-posters/`。
 
@@ -19,10 +21,12 @@ ActivityHub 是一个用于整理商业地产、地产科技、REITs、办公租
 
 - 不做自动公众号抓取。
 - 不做全网实时爬虫。
-- 只读取项目中配置的少量公开 verified source URL。
+- 首页默认读取固定 verified 活动库，不依赖随机刷新。
+- “刷新真实活动”只做增量发现、去重、补充和缺失字段更新。
+- 已确认并锁定的 verified 活动不会被后续刷新删除或覆盖。
 - 不做登录、数据库、多人协作或权限系统。
 - 不自动发送给销售。
-- 不编造报名链接；找不到直接报名入口时，`registrationUrl` 留空，前端使用活动来源页面作为“活动来源链接”。
+- 不编造报名链接；没有明确报名 / 注册链接的候选不会进入 verified 活动库。
 - 优先读取官方海报/OG 图片；页面无合适海报时，生成一张统一风格的本地活动视觉图，避免直接截取凌乱网页。
 - OpenAI API key 只放在后端 `.env`，不要写入 `index.html` 或 `app.js`。
 - AI 只辅助提取和填表，最终保存、收藏和导出仍由用户人工确认。
@@ -87,15 +91,19 @@ http://127.0.0.1:3000
 
 如果链接内容无法读取，页面会提示：`链接内容无法读取，请粘贴活动原文后重试`。
 
-## 测试真实活动发现
+## 测试固定活动库与增量更新
 
 1. 启动本地服务并打开 `http://127.0.0.1:3000`。
-2. 在首页搜索区右侧点击“刷新真实活动”。
-3. 页面会显示“正在发现真实活动，请稍候”。
-4. 后端会读取 verified source URL、提取候选活动链接、优先识别直接报名入口，同时保留活动来源链接，生成/保存合适的活动视觉图，并调用 OpenAI 生成 200-250 字中文备注。
-5. 成功后，真实活动会写入 localStorage 并显示在首页卡片中。
+2. 首页会自动读取 `data/verified-events.json`，不用点击刷新也会显示固定 verified 活动。
+3. 在首页搜索区右侧点击“刷新真实活动”。
+4. 后端会在固定库基础上增量发现公开活动页，过滤无报名链接、早于 2026-05-01、报道/访谈/榜单等不合格内容。
+5. 符合条件的新活动会合并写回 `data/verified-events.json`；已确认活动会继续保留。
 
 也可以直接测试接口：
+
+```bash
+curl -s http://127.0.0.1:3000/api/verified-events
+```
 
 ```bash
 curl -s -X POST http://127.0.0.1:3000/api/discover-events
@@ -107,7 +115,7 @@ curl -s -X POST http://127.0.0.1:3000/api/discover-events
 assets/generated-posters/
 ```
 
-V2 仍然使用 localStorage 保存前端活动数据，不使用数据库。
+当前版本不使用数据库。固定活动库保存在 `data/verified-events.json`，前端收藏等用户状态保存在 localStorage。
 
 ## 活动字段
 
@@ -120,10 +128,11 @@ V2 仍然使用 localStorage 保存前端活动数据，不使用数据库。
 - 活动日期
 - 主办方
 - 活动来源
-- 活动链接 / 报名链接
+- 活动来源链接
+- 报名链接
 - 活动海报链接
 - 主题标签
-- 活动简介 / AI 摘要
+- 备注 / 活动摘要
 - 推荐级别
 - 推荐理由
 - 活动状态
@@ -140,11 +149,37 @@ V2 仍然使用 localStorage 保存前端活动数据，不使用数据库。
 - 活动海报
 - 地点
 - 时间
-- 活动来源链接 / 报名入口
-- 200-250 字备注 / 活动简介
+- 报名链接
+- 备注
 - Best regards, Julie Wu
 
 ## API
+
+### `GET /api/verified-events`
+
+读取固定 verified 活动库。首页默认调用这个接口。
+
+```bash
+curl -s http://127.0.0.1:3000/api/verified-events
+```
+
+响应：
+
+```json
+{
+  "success": true,
+  "events": [
+    {
+      "title": "活动名称",
+      "date": "2026-09-25",
+      "city": "上海",
+      "location": "上海世博展览馆",
+      "registrationUrl": "直接报名或注册链接",
+      "posterUrl": "assets/generated-posters/verified-event.svg"
+    }
+  ]
+}
+```
 
 ### `POST /api/extract-event`
 
@@ -180,7 +215,7 @@ V2 仍然使用 localStorage 保存前端活动数据，不使用数据库。
 
 ### `POST /api/discover-events`
 
-真实活动发现接口会搜索公开活动页和官方活动站点，并只返回通过质量过滤的活动：
+增量活动发现接口会搜索公开活动页和官方活动站点，并只把通过质量过滤的活动合并进 fixed verified 活动库：
 
 - 活动日期不早于 `2026-05-01`
 - 必须是会议、展会、论坛、研讨会等真实活动
@@ -216,6 +251,8 @@ curl -s -X POST http://127.0.0.1:3000/api/discover-events
       "notes": "补充说明"
     }
   ],
+  "added": 1,
+  "updated": 0,
   "sources": [
     {
       "url": "活动来源页",
