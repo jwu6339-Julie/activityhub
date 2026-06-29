@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/verified-events", "destination": "/api/verified-events.js" },
+    { "source": "/api/discover-events", "destination": "/api/discover-events.js" },
+    { "source": "/api/extract-event", "destination": "/api/extract-event.js" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
