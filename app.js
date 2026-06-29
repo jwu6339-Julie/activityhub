@@ -334,10 +334,14 @@ function normalizeEvent(event) {
 function isAllowedStoredEvent(event) {
   if (!event.verifiedSource) return true;
   const titleText = `${event.name || ""} ${event.type || ""}`;
-  const nonEventPattern = /(观点|对话|专访|访谈|快讯|新闻|报道|评论|分析文章|白皮书|榜单|企业50|科技50|政策解读|研究报告)/i;
+  const nonEventPattern = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
+  const eventTitlePattern = /(大会|峰会|论坛|研讨会|沙龙|展览会|博览会|交流会|培训|闭门会|招商会|推介会|说明会|开放日|路演|报名|参会|注册|conference|summit|forum|expo|exhibition|seminar|webinar|training|registration)/i;
+  const date = normalizeExtractedDate(event.date);
   return Boolean(event.link)
-    && Boolean(normalizeExtractedDate(event.date))
-    && normalizeExtractedDate(event.date) >= "2026-05-01"
+    && Boolean(event.posterUrl)
+    && Boolean(date)
+    && date >= "2026-05-01"
+    && eventTitlePattern.test(titleText)
     && !nonEventPattern.test(titleText);
 }
 
@@ -905,7 +909,7 @@ function renderEventList() {
   const filtered = getFilteredEvents();
 
   if (!filtered.length) {
-    elements.eventList.innerHTML = `<p class="empty-state">暂无匹配活动。你可以新增活动，或调整筛选条件。</p>`;
+    elements.eventList.innerHTML = `<p class="empty-state">暂无符合条件的真实可报名活动。你可以点击“刷新真实活动”，或在后台手动添加已确认的活动。</p>`;
     return;
   }
 
