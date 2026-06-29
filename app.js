@@ -24,7 +24,7 @@ const salesKeywords = [
 
 const sampleEvents = [];
 
-let events = loadEvents();
+let events = [];
 let activeView = "home";
 
 const elements = {
@@ -138,7 +138,6 @@ function normalizeEvent(event) {
 }
 
 function isAllowedStoredEvent(event) {
-  if (!event.verifiedSource) return true;
   const titleText = `${event.name || ""} ${event.type || ""}`;
   const fullText = `${titleText} ${event.source || ""} ${event.description || ""} ${event.summaryNote || ""}`;
   const nonEventPattern = /(观点|对话|专访|访谈|新闻|报道|快讯|评论|分析|观察|回顾|圆满举行|成功举办|成功召开|发布|榜单|企业50|科技50|白皮书|研究报告|政策解读|人物|案例|文章|资讯)/i;
@@ -151,7 +150,7 @@ function isAllowedStoredEvent(event) {
     && Boolean(date)
     && date >= "2026-05-01"
     && eventTitlePattern.test(titleText)
-    && !nonEventPattern.test(fullText);
+    && (event.verifiedSource || !nonEventPattern.test(fullText));
 }
 
 function createId() {
@@ -270,7 +269,11 @@ function toggleFavorite(id) {
 }
 
 async function loadVerifiedEventsFromServer() {
-  if (window.location.protocol === "file:") return;
+  if (window.location.protocol === "file:") {
+    events = loadEvents().sort(sortByDate);
+    render();
+    return;
+  }
 
   try {
     const response = await fetch("/api/verified-events");
@@ -280,11 +283,16 @@ async function loadVerifiedEventsFromServer() {
     }
 
     const verifiedEvents = Array.isArray(data.events) ? data.events.map(mapDiscoveredEvent).filter(Boolean) : [];
-    mergeEventsPreservingUserState(verifiedEvents);
+    replaceEventsPreservingUserState(verifiedEvents);
     saveEvents();
     render();
-    setDiscoverStatus(`已加载 ${verifiedEvents.length} 条固定 verified 活动。`, "success");
+    setDiscoverStatus(`已加载 ${verifiedEvents.length} 条固定活动，刷新不会删除已确认活动。`, "success");
   } catch (error) {
+    const fallbackEvents = loadEvents().sort(sortByDate);
+    if (fallbackEvents.length) {
+      events = fallbackEvents;
+      render();
+    }
     setDiscoverStatus(error.message || "固定活动库加载失败", "error");
   }
 }
@@ -379,7 +387,7 @@ async function extractEventWithAi() {
 
 async function discoverRealEvents() {
   setDiscoverLoading(true);
-  setDiscoverStatus("正在增量发现真实活动，请稍候", "");
+  setDiscoverStatus("正在重新加载固定活动库...", "");
 
   try {
     const apiBase = window.location.protocol === "file:" ? "http://127.0.0.1:3000" : "";
@@ -395,9 +403,8 @@ async function discoverRealEvents() {
     const addedCount = data.addedCount ?? data.added ?? 0;
     const updatedCount = data.updatedCount ?? data.updated ?? 0;
     const keptExistingCount = data.keptExistingCount ?? Math.max(0, totalVerified - addedCount);
-    console.info(`固定库合并后活动 ${totalVerified} 条，保留 ${keptExistingCount} 条，新增 ${addedCount} 条，更新 ${updatedCount} 条`);
-    console.info("已过滤 KPMG / 博鳌 / 观点文章 / 会后报道 / 无报名链接内容");
-    console.info(`当前首页活动数量 ${discovered.length}`);
+    console.info(`固定活动库：共 ${totalVerified} 条，保留 ${keptExistingCount} 条，新增 ${addedCount} 条，更新 ${updatedCount} 条`);
+    console.info("固定演示版不会执行随机搜索，也不会删除已确认活动");
 
     if (!discovered.length) {
       const message = "未找到符合条件的活动。原因可能是：没有直接报名链接、活动日期早于 2026 年 5 月、或页面属于新闻报道而非活动。";
@@ -406,12 +413,11 @@ async function discoverRealEvents() {
       return;
     }
 
-    mergeEventsPreservingUserState(discovered);
+    replaceEventsPreservingUserState(discovered);
     saveEvents();
     render();
-    const warning = data.warning ? ` ${data.warning}` : "";
-    setDiscoverStatus(`已保留 ${keptExistingCount} 条固定 verified 活动，新增 ${addedCount} 条，更新 ${updatedCount} 条。当前共 ${totalVerified} 条。${warning}`, "success");
-    showToast("真实活动库已更新");
+    setDiscoverStatus(`已加载 ${totalVerified} 条固定活动，刷新不会删除已确认活动。`, "success");
+    showToast("固定活动库已重新加载");
   } catch (error) {
     setDiscoverStatus(error.message || "真实活动发现失败，请稍后重试", "error");
   } finally {
@@ -447,8 +453,8 @@ function mapDiscoveredEvent(event) {
     posterUrl: event.posterUrl || "",
     tags: Array.isArray(event.themes) ? event.themes.join(", ") : "",
     salesType: "",
-    summaryNote: cleanSummaryNote(event.aiSummary || event.notes || ""),
-    description: cleanSummaryNote(event.aiSummary || ""),
+    summaryNote: cleanSummaryNote(event.notes || event.aiSummary || ""),
+    description: cleanSummaryNote(event.notes || event.aiSummary || ""),
     recommendationLevel: "中",
     recommendReason: event.notes || "",
     status: "待评估",
@@ -480,6 +486,26 @@ function mergeEventsPreservingUserState(incomingEvents) {
   });
 
   events = [...byId.values()].filter(isAllowedStoredEvent).sort(sortByDate);
+}
+
+function replaceEventsPreservingUserState(incomingEvents) {
+  const previousEvents = events;
+  const favoriteIds = new Set(previousEvents.filter((event) => event.favorite).map((event) => event.id));
+  const favoriteKeys = new Set(previousEvents.filter((event) => event.favorite).map(eventIdentity));
+  const selectedIds = new Set(previousEvents.filter((event) => event.selectedForReport).map((event) => event.id));
+  const selectedKeys = new Set(previousEvents.filter((event) => event.selectedForReport).map(eventIdentity));
+
+  events = incomingEvents
+    .map((incoming) => {
+      const key = eventIdentity(incoming);
+      return {
+        ...incoming,
+        favorite: favoriteIds.has(incoming.id) || favoriteKeys.has(key),
+        selectedForReport: selectedIds.has(incoming.id) || selectedKeys.has(key)
+      };
+    })
+    .filter(isAllowedStoredEvent)
+    .sort(sortByDate);
 }
 
 function mergeDiscoveredEvents(discovered) {
@@ -898,12 +924,12 @@ function renderAdminTable() {
 }
 
 function buildPlainTextReport() {
-  const selected = events
-    .filter((event) => event.favorite)
-    .sort((a, b) => new Date(`${a.date}T00:00:00`) - new Date(`${b.date}T00:00:00`));
+  const favorites = events.filter((event) => event.favorite);
+  const selected = (favorites.length ? favorites : events)
+    .sort(sortByDate);
 
   if (!selected.length) {
-    return "收藏夹暂无活动。";
+    return "暂无活动。";
   }
 
   const body = selected.map((event, index) => [
@@ -927,26 +953,26 @@ function buildPlainTextReport() {
   ].join("\n");
 }
 
-function exportWordReport() {
-  const favorites = events.filter((event) => event.favorite).sort(sortByDate);
-  if (!favorites.length) {
-    showToast("收藏夹暂无活动，无法导出");
+async function exportWordReport() {
+  const favorites = events.filter((event) => event.favorite);
+  const selectedEvents = (favorites.length ? favorites : events).sort(sortByDate);
+  if (!selectedEvents.length) {
+    showToast("暂无活动可导出");
     return;
   }
 
-  const topicBlocks = favorites.map((event, index) => {
-    const posterUrl = documentPosterUrl(event.posterUrl);
+  const topicBlocks = (await Promise.all(selectedEvents.map(async (event, index) => {
+    const posterUrl = await documentPosterUrl(event.posterUrl);
     const registrationHtml = reportRegistrationHtml(event);
     return `
     <h2>TOPIC ${index + 1}：${escapeHtml(event.name)}</h2>
     <div class="poster-block">${posterUrl ? `<img src="${escapeAttribute(posterUrl)}" alt="${escapeAttribute(event.name)} 活动海报">` : "[活动海报] 未填写"}</div>
-    <p><strong>活动标题：</strong>${escapeHtml(event.name)}</p>
-    <p><strong>地点：</strong>${escapeHtml(event.city)} ${escapeHtml(event.location)}</p>
     <p><strong>时间：</strong>${formatDate(event.date)}</p>
+    <p><strong>地点：</strong>${escapeHtml(event.city)} ${escapeHtml(event.location)}</p>
     <p><strong>报名链接：</strong>${registrationHtml}</p>
     <p><strong>备注：</strong>${escapeHtml(cleanSummaryNote(event.summaryNote || event.description || "暂无备注。"))}</p>
   `;
-  }).join("");
+  }))).join("");
 
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -956,8 +982,8 @@ function exportWordReport() {
   <style>
     body { font-family: Georgia, "Times New Roman", "Songti SC", serif; max-width: 780px; margin: 40px auto; line-height: 1.65; color: #111827; }
     h2 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; margin-top: 32px; font-size: 20px; }
-    .poster-block { page-break-inside: avoid; margin: 10px 0 18px; text-align: center; }
-    img { display: block; width: 5.7in; max-width: 75%; height: auto; border: 1px solid #d7dee8; margin: 0 auto 16px; }
+    .poster-block { page-break-inside: avoid; margin: 12px 0 20px; text-align: center; }
+    img { display: block; width: 5.3in; max-width: 70%; height: auto; object-fit: contain; border: 1px solid #d7dee8; margin: 0 auto 16px; }
     strong { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
   </style>
 </head>
@@ -970,16 +996,28 @@ function exportWordReport() {
 </body>
 </html>`;
 
-  downloadFile(`activityhub-favorites-${todayString()}.doc`, html, "application/msword;charset=utf-8");
+  const suffix = favorites.length ? "favorites" : "verified-events";
+  downloadFile(`activityhub-${suffix}-${todayString()}.doc`, html, "application/msword;charset=utf-8");
 }
 
-function documentPosterUrl(posterUrl) {
+async function documentPosterUrl(posterUrl) {
   if (!posterUrl) return "";
   try {
-    return new URL(posterUrl, window.location.href).href;
+    const absoluteUrl = new URL(posterUrl, window.location.href).href;
+    if (/\.svg($|\?)/i.test(absoluteUrl)) {
+      const response = await fetch(absoluteUrl);
+      if (!response.ok) return absoluteUrl;
+      const svgText = await response.text();
+      return `data:image/svg+xml;base64,${toBase64(svgText)}`;
+    }
+    return absoluteUrl;
   } catch {
     return posterUrl;
   }
+}
+
+function toBase64(value) {
+  return btoa(unescape(encodeURIComponent(value)));
 }
 
 function reportRegistrationHtml(event) {
